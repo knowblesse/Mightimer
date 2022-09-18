@@ -1,29 +1,17 @@
-/*****************************************************************************
- *
-/ Program for writing to NHD-C12864A1Z display Series with the ST7565P Controller.
-/ This code is written for the Arduino Uno R3 using Serial Interface
-/
-/ Newhaven Display invests time and resources providing this open source code,
-/ Please support Newhaven Display by purchasing products from Newhaven Display!
 
-* Copyright (c) 2019, Newhaven Display International
-*
-* This code is provided as an example only and without any warranty by Newhaven Display.
-* Newhaven Display accepts no responsibility for any issues resulting from its use.
-* The developer of the final application incorporating any parts of this
-* sample code is responsible for ensuring its safe and correct operation
-* and for any consequences resulting from its use.
-* See the GNU General Public License for more details.
-*
-* Use Vertical Orientation when converting BMP to hex code to display 
-* custom image using LCD assistant.
-*
-*****************************************************************************/
-
+/*
+ * PIN 1 : CLK
+ * PIN 2 : DATA
+ * PIN 3 : V+
+ * PIN 4 : A0
+ * PIN 5 : RESET
+ * PIN 6 : CS
+ */
 
 /****************************************************
  *               Pinout on Arduino Uno               
  *****************************************************/
+#include <SPI.h>
 #include "heximage.h"
 #define RES 4 // Reset signal
 #define CS 3  // Chip select signal
@@ -41,20 +29,9 @@ void data_write(unsigned char d) // Data Output Serial Interface
   unsigned int n;
   digitalWrite(CS, LOW);
   digitalWrite(RS, HIGH);
-  for (n = 0; n < 8; n++)
-  {
-    if ((d & 0x80) == 0x80)
-      digitalWrite(SI, HIGH);
-    else
-      digitalWrite(SI, LOW);
-    while (0);
-    d = (d << 1);
-    digitalWrite(SC, LOW);
-    while (0);
-    digitalWrite(SC, HIGH);
-    while (0);
-    digitalWrite(SC, LOW);
-  }
+  
+  SPI.transfer(d);
+  
   digitalWrite(CS, HIGH);
 }
 
@@ -63,20 +40,9 @@ void comm_write(unsigned char d) // Command Output Serial Interface
   unsigned int n;
   digitalWrite(CS, LOW);
   digitalWrite(RS, LOW);
-  for (n = 0; n < 8; n++)
-  {
-    if ((d & 0x80) == 0x80)
-      digitalWrite(SI, HIGH);
-    else
-      digitalWrite(SI, LOW);
-    while (0);
-    d = (d << 1);
-    digitalWrite(SC, LOW);
-    while (0);
-    digitalWrite(SC, HIGH);
-    while (0);
-    digitalWrite(SC, LOW);
-  }
+
+  SPI.transfer(d);
+
   digitalWrite(CS, HIGH);
 }
 
@@ -164,17 +130,24 @@ void init_LCD()
 
 void setHour(int hour)
 {
-  DispPic(b[hour], 2, 5, 0, 27);
+  DispPic(large_digit[hour], 2, 5, 0, 27);
 }
 
 void setMinute(int minute)
 {
   int first_digit = (int)(minute / 10);
   int last_digit = minute % 10;
-  DispPic(b[first_digit], 2, 5, 37, 27);
-  DispPic(b[last_digit], 2, 5, 64, 27);
+  DispPic(large_digit[first_digit], 2, 5, 37, 27);
+  DispPic(large_digit[last_digit], 2, 5, 64, 27);
 }
 
+void setSecond(int second)
+{
+  int first_digit = (int)(second / 10);
+  int last_digit = second % 10;
+  DispPic(small_digit[first_digit], 5, 3, 91, 18);
+  DispPic(small_digit[last_digit], 5, 3, 110, 18);
+}
 /*****************************************************
  *           Setup Function, to run once              
  *****************************************************/
@@ -187,6 +160,10 @@ void setup()
   pinMode(SC, OUTPUT);  // configure SC as output
   pinMode(SI, OUTPUT);  // configure SI as output
   pinMode(LED, OUTPUT);
+
+  SPI.begin();
+  SPI.beginTransaction(SPISettings(3000000, MSBFIRST, SPI_MODE3));
+  
   digitalWrite(5, HIGH);
   digitalWrite(RES, LOW);
   delay(100);
@@ -194,7 +171,7 @@ void setup()
   delay(100);
   Serial.begin(9600);
   init_LCD();
-  DispPic(bg);
+  DispPic(background);
   setHour(1);
   setMinute(23);
 }
@@ -211,10 +188,11 @@ unsigned long currTime;
 void loop()
 {
   currTime = millis();
-  if(currTime%1000 < 100)
+  if(currTime%100 < 10)
   {
-     setHour((int)(currTime / (60*1000)));
-     setMinute( (int)((int)currTime % 60000) / 1000 );
-     delay(100);
+     setHour(0);
+     setMinute((int)(currTime / (60*100)));
+     setSecond( (int)((int)currTime % 6000) / 100 );
+     delay(10);
   }
 }
