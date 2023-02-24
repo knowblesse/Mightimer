@@ -1,12 +1,12 @@
 ﻿#include "display.h"
 #include <avr/io.h>
 #include "heximage.h"
+#include <util/delay.h>
 
 SPI_Display::SPI_Display()
 {
 	//Digital Output Pin Setup
 	PORTA.DIRSET = PIN4_bm | PIN6_bm | PIN7_bm; //pin PA4(MOSI), PA6(SCK), PA7(SS) to OUTPUT
-	//PORTA.DIRCLR = PIN5_bm;
 	PORTA.OUTSET = PIN7_bm; // set high for Chip Select Pin;
 	
 	PORTC.DIRSET = PIN1_bm | PIN2_bm; // LCD Reset, A0 Pin Output
@@ -14,44 +14,52 @@ SPI_Display::SPI_Display()
 	
 	
 	//SPI Setup
-	SPI0.CTRLA |= SPI_MASTER_bm;
-	//SPI0.CTRLA |= SPI_PRESC_DIV16_gc;
-	SPI0.CTRLB |= 0b00000011;
-	SPI0.CTRLA |= SPI_ENABLE_bm;	
-}
-
-void SPI_Display::data_write(unsigned char d) // Data Output Serial Interface
-{	
-	PORTA.OUTCLR = PIN7_bm;
-	PORTC.OUTSET = PIN2_bm; // Data mode => A0 HIGH
-	SPI0.DATA = d;
-	while(!(SPI0.INTFLAGS & SPI_IF_bm));
-	PORTA.OUTSET = PIN7_bm;
+	SPI0.CTRLA = SPI_MASTER_bm
+				| SPI_CLK2X_bm
+				| SPI_ENABLE_bm;
+	SPI0.CTRLB |= SPI_MODE_3_gc;
 	
+	// LCD Reset Pin setup (this must be done after SPI setup and before LCD init.)
+	PORTC.OUTCLR = PIN1_bm; // Low Reset pin
+	_delay_ms(100);
+	PORTC.OUTSET = PIN1_bm; // HIGH Reset pin
+	_delay_ms(100);
 }
 
-void SPI_Display::comm_write(unsigned char d) // Command Output Serial Interface
-{
-	PORTA.OUTCLR = PIN7_bm;
-	PORTC.OUTCLR = PIN2_bm; // Data mode => A0 LOW
-	SPI0.DATA = d;
+void SPI_Display::data_write(unsigned char value) // Data Output Serial Interface
+{	
+	PORTC.OUTSET = PIN2_bm; // Low A0 : Command Mode
+	PORTA.OUTCLR = PIN7_bm; // Low CS
+	SPI0.DATA = value;
 	while(!(SPI0.INTFLAGS & SPI_IF_bm));
-	PORTA.OUTSET = PIN7_bm;
+	PORTA.OUTSET = PIN7_bm; // High CS
+}
+
+void SPI_Display::comm_write(unsigned char value) // Command Output Serial Interface
+{
+	PORTC.OUTCLR = PIN2_bm; // Low A0 : Command Mode
+	PORTA.OUTCLR = PIN7_bm; // Low CS
+	SPI0.DATA = value;
+	while(!(SPI0.INTFLAGS & SPI_IF_bm));
+	PORTA.OUTSET = PIN7_bm; // High CS
   
 }
 
-void SPI_Display::setDot(int i)
+void SPI_Display::setDot()
 {
-	unsigned char page = 0xB0 + i;
-	//comm_write(0xAE); // Display OFF
-	comm_write(0x40); // Display start address + 0x40
-	
-	comm_write(page); // send page address
-	comm_write(0x10); // column address upper 4 bits + 0x10
-	comm_write(0x00); // column address lower 4 bits + 0x00
-	
-	data_write(0xAA);
-	
+	unsigned char page = 0xB0;
+	comm_write(0x40);
+	for (int i = 0; i < 8; i++)
+	{
+		comm_write(page);
+		comm_write(0x10);
+		comm_write(0x00);
+		for (int j = 0; j < 128; j++)
+		{
+			data_write(0xEF);
+		}
+		page++;
+	}
 }
 
 
@@ -127,7 +135,7 @@ void SPI_Display::init_LCD()
   comm_write(0xC8); // COM output mode (15) reversed 0b11001000
 
   //110
-  comm_write(0b0010000 + 4); // Resistor Ratio Set (17)00100XXX 0b00100110
+  comm_write(0x24); // Resistor Ratio Set (17)00100XXX 0b00100110
   comm_write(0x81); // Electronic Volume Command (set contrast) Double Byte: 1 of 2 0b10000001
   comm_write(35); // Electronic Volume value (contrast value) Double Byte: 2 of 2 0b00010001
 

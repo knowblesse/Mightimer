@@ -19,7 +19,7 @@ class SPI_Display
 		void setDataMode(bool a);
 		void data_write(unsigned char d);
 		void comm_write(unsigned char d);
-		void setDot(int i);
+		void setDot();
 		void DispPic(const unsigned char *lcd_string);
 		void DispPic(const unsigned char *picData, int startPage, int height, char startColumn, int width);
 		void ClearLCD();
