@@ -27,30 +27,66 @@ void setTime(SPI_Display *spiDisplay, long long timeInSec)
 	if(currMinute != minute) spiDisplay->setMinute(minute);
 	if(currHour != hour) spiDisplay->setHour(hour);
 }
-
+// TODO: still very wrong timing. (maybe PIT is not a good choice?)
 int main(void)
 {	
-	//Setup External 32kHz Clock
-	CLKCTRL.MCLKCTRLA |= CLKCTRL_CLKSEL_XOSC32K_gc;
 	
+	//TODO: maybe disabling and reenabling is not necessary
+	// Disable External 32kHz oscillator
+	uint8_t temp = CLKCTRL.XOSC32KCTRLA;
+	temp &= ~CLKCTRL_ENABLE_bm;
+	CPU_CCP = CCP_IOREG_gc; // enable changing protected bit
+	CLKCTRL.XOSC32KCTRLA = temp;
 	
+	// Check Disabled
+	while ((CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));
+
+	// Set XOSC32K
+	temp = CLKCTRL.XOSC32KCTRLA;
+	temp &= ~CLKCTRL_SEL_bm; // select i'm using two pins for oscillator
+	temp |= CLKCTRL_RUNSTBY_bm; // always running. maybe not necessary
+	CPU_CCP = CCP_IOREG_gc;
+	CLKCTRL.XOSC32KCTRLA = temp;
+	
+	// Enable External 32kHz oscillator
+	temp = CLKCTRL.XOSC32KCTRLA;
+	temp |= CLKCTRL_ENABLE_bm;
+	CPU_CCP = CCP_IOREG_gc;
+	CLKCTRL.XOSC32KCTRLA = temp;
+	
+	// Check enabled
+	while (!(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));	
+	
+	// Select main source as XOSC32K
+	temp = CLKCTRL.MCLKCTRLA;
+	temp = CLKCTRL_CLKSEL_XOSC32K_gc;
+	CPU_CCP = CCP_IOREG_gc;
+	CLKCTRL.MCLKCTRLA = temp;
+	
+	// Check if main clock is synced
+	while (CLKCTRL.MCLKSTATUS & CLKCTRL_SOSC_bm);
+	
+	// Setup Ports	
 	PORTA.DIRSET = PIN0_bm | PIN3_bm; //pin PA0 (Tx), PA3(LED) to OUTPUT
 	PORTA.DIRCLR = PIN1_bm; //pin PA1(Rx) to INPUT
 	PORTC.DIRSET = PIN3_bm;
 	
+	// Setup USART
 	USART0.BAUD = USART0_BAUD_RATE(1200); // set BAUD RATE
 	USART0.CTRLC = 0b00000011; // set "send 8bits per frame"
 	USART0.CTRLB = 0b11000000; // enable Tx and Rx
 	
-	RTC.CLKSEL |= RTC_CLKSEL_OSC32K_gc;
+	// Setup RTC
+	RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
 	RTC.CTRLA |= RTC_RTCEN_bm;
 	while((RTC.PITSTATUS & RTC_CTRLABUSY_bm));
 	PORTC.OUTCLR = PIN3_bm;
 	
+	// Setup PIT function in RTC	
 	RTC.PITCTRLA |= RTC_PERIOD_CYC32768_gc;
 	RTC.PITINTCTRL = RTC_PI_bm;
 	RTC.PITCTRLA |= RTC_PITEN_bm;
-	RTC.CALIB = 0x10;
+	//RTC.CALIB = 0x10;
 	
 	// SPI Display Setup
 	SPI_Display spiDisplay = SPI_Display();
