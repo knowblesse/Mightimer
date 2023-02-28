@@ -72,21 +72,30 @@ int main(void)
 	PORTC.DIRSET = PIN3_bm;
 	
 	// Setup USART
+	PORTA.DIRSET = PIN2_bm;
+	PORTMUX.USARTROUTEA |= PORTMUX_USART0_ALT2_gc;
 	USART0.BAUD = USART0_BAUD_RATE(1200); // set BAUD RATE
 	USART0.CTRLC = 0b00000011; // set "send 8bits per frame"
 	USART0.CTRLB = 0b11000000; // enable Tx and Rx
 	
+	
 	// Setup RTC
+	while (RTC.STATUS > 0);
 	RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
+	//RTC.CTRLA |= RTC_PRESCALER_DIV32768_gc;
+	RTC.CTRLA |= RTC_PRESCALER_DIV1_gc;
+	RTC.CTRLA |= RTC_RUNSTDBY_bm;
+	RTC.CMP = 0xFFFF;
+	RTC.DBGCTRL |= RTC_DBGRUN_bm;
+	RTC.INTCTRL |= RTC_OVF_bm | RTC_CMP_bm;
+	while(RTC.STATUS);
 	RTC.CTRLA |= RTC_RTCEN_bm;
-	while((RTC.PITSTATUS & RTC_CTRLABUSY_bm));
-	PORTC.OUTCLR = PIN3_bm;
 	
 	// Setup PIT function in RTC	
 	RTC.PITCTRLA |= RTC_PERIOD_CYC32768_gc;
 	RTC.PITINTCTRL = RTC_PI_bm;
 	RTC.PITCTRLA |= RTC_PITEN_bm;
-	//RTC.CALIB = 0x10;
+	RTC.CALIB = 0x38;
 	
 	// SPI Display Setup
 	SPI_Display spiDisplay = SPI_Display();
@@ -96,27 +105,19 @@ int main(void)
 	setTime(&spiDisplay, 0);
 	
 	int currTimeInSec = 0;
+	volatile uint16_t count; 
     while(1)
     {
+		USART0.TXDATAH = 0x00;
+		count = RTC.CNT;
+		USART0.TXDATAL = count; 
+		while(!(USART0.STATUS | USART_TXCIF_bm));
 		if(RTC.PITINTFLAGS & RTC_PI_bm)
 		{
 			RTC.PITINTFLAGS = 1;
 			currTimeInSec++;
 			setTime(&spiDisplay, currTimeInSec);
 		}
-		//for(int i = 0; i < 8; i++)
-		//{
-			//spiDisplay.setHour(i);
-			//_delay_ms(1000);
-			//spiDisplay.ClearLCD();
-		//}
-		//USART0.TXDATAL = (uint16_t)data; 
-		//PORTA.OUTCLR = PIN7_bm;
-		//SPI0.DATA = 0xF6;
-		//while(!(SPI0.INTFLAGS & SPI_IF_bm));
-		//PORTA.OUTSET = PIN7_bm;
-		//_delay_ms(1000);
-		//data++;
     }
 }
 
