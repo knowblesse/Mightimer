@@ -57,9 +57,13 @@ int main(void)
 	// Check enabled
 	while (!(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));	
 	
-	// Select main source as XOSC32K
+	//// Select main source as XOSC32K
+	//temp = CLKCTRL.MCLKCTRLA;
+	//temp = CLKCTRL_CLKSEL_XOSC32K_gc;
+	//CPU_CCP = CCP_IOREG_gc;
+	//CLKCTRL.MCLKCTRLA = temp;
 	temp = CLKCTRL.MCLKCTRLA;
-	temp = CLKCTRL_CLKSEL_XOSC32K_gc;
+	temp = CLKCTRL_CLKSEL_OSCHF_gc;
 	CPU_CCP = CCP_IOREG_gc;
 	CLKCTRL.MCLKCTRLA = temp;
 	
@@ -74,7 +78,7 @@ int main(void)
 	// Setup USART
 	PORTA.DIRSET = PIN2_bm;
 	PORTMUX.USARTROUTEA |= PORTMUX_USART0_ALT2_gc;
-	USART0.BAUD = USART0_BAUD_RATE(1200); // set BAUD RATE
+	USART0.BAUD = USART0_BAUD_RATE(9600); // set BAUD RATE
 	USART0.CTRLC = 0b00000011; // set "send 8bits per frame"
 	USART0.CTRLB = 0b11000000; // enable Tx and Rx
 	
@@ -82,20 +86,14 @@ int main(void)
 	// Setup RTC
 	while (RTC.STATUS > 0);
 	RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
-	//RTC.CTRLA |= RTC_PRESCALER_DIV32768_gc;
-	RTC.CTRLA |= RTC_PRESCALER_DIV1_gc;
-	RTC.CTRLA |= RTC_RUNSTDBY_bm;
-	RTC.CMP = 0xFFFF;
-	RTC.DBGCTRL |= RTC_DBGRUN_bm;
-	RTC.INTCTRL |= RTC_OVF_bm | RTC_CMP_bm;
+	RTC.PER = 0xFF;
+	RTC.INTCTRL |= RTC_OVF_bm;
+	RTC.CTRLA |= RTC_PRESCALER_DIV128_gc;
+	RTC.CALIB = 0b00000000;
+	RTC.CTRLA |= RTC_CORREN_bm;
 	while(RTC.STATUS);
 	RTC.CTRLA |= RTC_RTCEN_bm;
 	
-	// Setup PIT function in RTC	
-	RTC.PITCTRLA |= RTC_PERIOD_CYC32768_gc;
-	RTC.PITINTCTRL = RTC_PI_bm;
-	RTC.PITCTRLA |= RTC_PITEN_bm;
-	RTC.CALIB = 0x38;
 	
 	// SPI Display Setup
 	SPI_Display spiDisplay = SPI_Display();
@@ -108,15 +106,11 @@ int main(void)
 	volatile uint16_t count; 
     while(1)
     {
-		USART0.TXDATAH = 0x00;
-		count = RTC.CNT;
-		USART0.TXDATAL = count; 
-		while(!(USART0.STATUS | USART_TXCIF_bm));
-		if(RTC.PITINTFLAGS & RTC_PI_bm)
+		if(RTC.INTFLAGS & RTC_OVF_bm)
 		{
-			RTC.PITINTFLAGS = 1;
-			currTimeInSec++;
+			RTC.INTFLAGS |= RTC_OVF_bm;
 			setTime(&spiDisplay, currTimeInSec);
+			currTimeInSec++;
 		}
     }
 }
