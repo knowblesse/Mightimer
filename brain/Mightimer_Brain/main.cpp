@@ -27,21 +27,20 @@ void setTime(SPI_Display *spiDisplay, long long timeInSec)
 	if(currMinute != minute) spiDisplay->setMinute(minute);
 	if(currHour != hour) spiDisplay->setHour(hour);
 }
-// TODO: still very wrong timing. (maybe PIT is not a good choice?)
+
 int main(void)
 {	
 	
-	//TODO: maybe disabling and reenabling is not necessary
-	// Disable External 32kHz oscillator
-	uint8_t temp = CLKCTRL.XOSC32KCTRLA;
-	temp &= ~CLKCTRL_ENABLE_bm;
-	CPU_CCP = CCP_IOREG_gc; // enable changing protected bit
-	CLKCTRL.XOSC32KCTRLA = temp;
+	// Select Main Clock as internal high-freq oscillator
+	uint8_t temp = CLKCTRL.MCLKCTRLA;
+	temp = CLKCTRL_CLKSEL_OSCHF_gc; // Internal high-freq oscillator
+	CPU_CCP = CCP_IOREG_gc;
+	CLKCTRL.MCLKCTRLA = temp;
 	
-	// Check Disabled
-	while ((CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));
+	// Check if main clock is synced
+	while (CLKCTRL.MCLKSTATUS & CLKCTRL_SOSC_bm);
 
-	// Set XOSC32K
+	// Set External 32kHz oscillator
 	temp = CLKCTRL.XOSC32KCTRLA;
 	temp &= ~CLKCTRL_SEL_bm; // select i'm using two pins for oscillator
 	temp |= CLKCTRL_RUNSTBY_bm; // always running. maybe not necessary
@@ -57,19 +56,6 @@ int main(void)
 	// Check enabled
 	while (!(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));	
 	
-	//// Select main source as XOSC32K
-	//temp = CLKCTRL.MCLKCTRLA;
-	//temp = CLKCTRL_CLKSEL_XOSC32K_gc;
-	//CPU_CCP = CCP_IOREG_gc;
-	//CLKCTRL.MCLKCTRLA = temp;
-	temp = CLKCTRL.MCLKCTRLA;
-	temp = CLKCTRL_CLKSEL_OSCHF_gc;
-	CPU_CCP = CCP_IOREG_gc;
-	CLKCTRL.MCLKCTRLA = temp;
-	
-	// Check if main clock is synced
-	while (CLKCTRL.MCLKSTATUS & CLKCTRL_SOSC_bm);
-	
 	// Setup Ports	
 	PORTA.DIRSET = PIN0_bm | PIN3_bm; //pin PA0 (Tx), PA3(LED) to OUTPUT
 	PORTA.DIRCLR = PIN1_bm; //pin PA1(Rx) to INPUT
@@ -81,6 +67,15 @@ int main(void)
 	USART0.BAUD = USART0_BAUD_RATE(9600); // set BAUD RATE
 	USART0.CTRLC = 0b00000011; // set "send 8bits per frame"
 	USART0.CTRLB = 0b11000000; // enable Tx and Rx
+	
+	// Setup Voltage Reference
+	VREF.ADC0REF = VREF_REFSEL_VDD_gc; // Internal VDD (3.3V) is the max value
+	
+	// Setup ADC
+	ADC0.CTRLA = ADC_CONVMODE_SINGLEENDED_gc | ADC_RESSEL_10BIT_gc;
+	ADC0.CTRLC |= ADC_PRESC_DIV2_gc;
+	ADC0.CTRLD |= ADC_INITDLY_DLY32_gc;
+	ADC0.MUXPOS = ADC_MUXPOS_AIN31_gc; //PC3 == AIN31
 	
 	
 	// Setup RTC
@@ -94,7 +89,6 @@ int main(void)
 	while(RTC.STATUS);
 	RTC.CTRLA |= RTC_RTCEN_bm;
 	
-	
 	// SPI Display Setup
 	SPI_Display spiDisplay = SPI_Display();
 	spiDisplay.init_LCD();
@@ -104,13 +98,29 @@ int main(void)
 	
 	int currTimeInSec = 0;
 	volatile uint16_t count; 
+	double val;
+	int large;
     while(1)
     {
 		if(RTC.INTFLAGS & RTC_OVF_bm)
 		{
 			RTC.INTFLAGS |= RTC_OVF_bm;
-			setTime(&spiDisplay, currTimeInSec);
+			//setTime(&spiDisplay, currTimeInSec);
 			currTimeInSec++;
+			
+			if((currTimeInSec % 10) == 0)
+			{
+				ADC0.CTRLA |= ADC_ENABLE_bm;
+				ADC0.COMMAND |= ADC_STCONV_bm;
+				while(ADC0.COMMAND & ADC_STCONV_bm);
+				//while(!(ADC0.INTFLAGS & ADC_RESRDY_bm));
+				val = (((double)ADC0.RES / 1024.0) * 3.3);
+				large = (int)val;
+				spiDisplay.setHour(large);
+				spiDisplay.setMinute((int)(val*100) - large*100);
+				
+				ADC0.CTRLA &= ~ADC_ENABLE_bm;	
+			}
 		}
     }
 }
