@@ -5,10 +5,10 @@
  * Author : Knowblesse
  */ 
 
-#define F_CPU 32768UL
-//#define F_CPU 32000000UL
+#define F_CPU 4000000UL
 #include <avr/io.h>
 #include <util/delay.h>
+#include <time.h>
 #include "display.h"
 #include "heximage.h"
 #define USART0_BAUD_RATE(BAUD_RATE) ((float)(F_CPU * 64 / (16 * (float)BAUD_RATE)) + 0.5)
@@ -75,8 +75,8 @@ int main(void)
 	ADC0.CTRLA = ADC_CONVMODE_SINGLEENDED_gc | ADC_RESSEL_10BIT_gc;
 	ADC0.CTRLC |= ADC_PRESC_DIV2_gc;
 	ADC0.CTRLD |= ADC_INITDLY_DLY32_gc;
-	ADC0.MUXPOS = ADC_MUXPOS_AIN31_gc; //PC3 == AIN31
-	
+	//ADC0.MUXPOS = ADC_MUXPOS_AIN31_gc; //PC3 == AIN31
+	ADC0.MUXPOS = ADC_MUXPOS_AIN7_gc;
 	
 	// Setup RTC
 	while (RTC.STATUS > 0);
@@ -89,6 +89,10 @@ int main(void)
 	while(RTC.STATUS);
 	RTC.CTRLA |= RTC_RTCEN_bm;
 	
+	// Setup TCA (Counter A)
+	TCA0.SINGLE.PER = 0x00FF;
+	TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm;
+	
 	// SPI Display Setup
 	SPI_Display spiDisplay = SPI_Display();
 	spiDisplay.init_LCD();
@@ -96,16 +100,33 @@ int main(void)
 	spiDisplay.DispPic(background);
 	setTime(&spiDisplay, 0);
 	
+	// Test MISO as pullup input
+	PORTA.DIRCLR = PIN5_bm;
+	PORTA.PIN5CTRL |= PORT_PULLUPEN_bm;
+	PORTC.DIRCLR = PIN3_bm;
+	PORTC.PIN3CTRL |= PORT_PULLUPEN_bm;
+	
 	int currTimeInSec = 0;
 	volatile uint16_t count; 
 	double val;
 	int large;
+	
+	bool isTimerStarted = false;
+
+	
     while(1)
     {
-		if(RTC.INTFLAGS & RTC_OVF_bm)
+		// Check Buttons
+		if( (!(PORTC.IN & PIN3_bm)) & (TCA0.SINGLE.INTFLAGS & TCA_SINGLE_OVF_bm))
+		{
+			isTimerStarted = !isTimerStarted;
+			TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
+		}
+		
+		if(isTimerStarted & (RTC.INTFLAGS & RTC_OVF_bm))
 		{
 			RTC.INTFLAGS |= RTC_OVF_bm;
-			//setTime(&spiDisplay, currTimeInSec);
+			setTime(&spiDisplay, currTimeInSec);
 			currTimeInSec++;
 			
 			if((currTimeInSec % 10) == 0)
