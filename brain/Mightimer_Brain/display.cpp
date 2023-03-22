@@ -28,7 +28,7 @@ SPI_Display::SPI_Display()
 
 void SPI_Display::data_write(unsigned char value) // Data Output Serial Interface
 {	
-	PORTC.OUTSET = PIN2_bm; // Low A0 : Command Mode
+	PORTC.OUTSET = PIN2_bm; // HIGH A0 : Command Mode
 	PORTA.OUTCLR = PIN7_bm; // Low CS
 	SPI0.DATA = value;
 	while(!(SPI0.INTFLAGS & SPI_IF_bm));
