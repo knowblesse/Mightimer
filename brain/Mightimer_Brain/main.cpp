@@ -17,6 +17,19 @@ int currSecond = -1;
 int currMinute = -1;
 int currHour = -1;
 
+bool getBTN1() {return !(PORTA.IN & PIN5_bm);}
+bool getBTN2() {return !(PORTF.IN & PIN6_bm);}
+bool getBTN1_R1() {return !(PORTD.IN & PIN6_bm);}
+bool getBTN1_R2() {return !(PORTD.IN & PIN5_bm);}
+bool getBTN2_R1() {return !(PORTD.IN & PIN4_bm);}
+bool getBTN2_R2() {return !(PORTC.IN & PIN3_bm);}
+void setLED(bool state)
+{
+	if (state) PORTA.OUTSET = PIN3_bm;
+	else PORTA.OUTCLR = PIN3_bm;
+}
+
+
 void setTime(SPI_Display *spiDisplay, long long timeInSec)
 {
 	int hour = (int)((double)timeInSec / 3600.0);
@@ -29,8 +42,7 @@ void setTime(SPI_Display *spiDisplay, long long timeInSec)
 }
 
 int main(void)
-{	
-	
+{
 	// Select Main Clock as internal high-freq oscillator
 	uint8_t temp = CLKCTRL.MCLKCTRLA;
 	temp = CLKCTRL_CLKSEL_OSCHF_gc; // Internal high-freq oscillator
@@ -57,16 +69,49 @@ int main(void)
 	while (!(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));	
 	
 	// Setup Ports	
-	PORTA.DIRSET = PIN0_bm | PIN3_bm; //pin PA0 (Tx), PA3(LED) to OUTPUT
-	PORTA.DIRCLR = PIN1_bm; //pin PA1(Rx) to INPUT
-	PORTC.DIRSET = PIN3_bm;
+	/*
+	PF6 : BTN2 PUSH
+	PA2 : LED
+	PA3 : LCD LED
+	PA4 : SPI_COPI
+	PA5 : BTN1 PUSH
+	PA6 : SPI_CLK
+	PA7 : SPI_CS
 	
-	// Setup USART
-	PORTA.DIRSET = PIN2_bm;
-	PORTMUX.USARTROUTEA |= PORTMUX_USART0_ALT2_gc;
-	USART0.BAUD = USART0_BAUD_RATE(9600); // set BAUD RATE
-	USART0.CTRLC = 0b00000011; // set "send 8bits per frame"
-	USART0.CTRLB = 0b11000000; // enable Tx and Rx
+	PC1 : LCD_RESET
+	PC2 : LCD_A0
+	PC3 : BTN2-R2
+	
+	PD4 : BTN2-R1
+	PD5 : BTN1-R2
+	PD6 : BTN1-R1
+	PD7 : BATT_LEVEL
+	*/
+	
+	
+	PORTF.DIRCLR = PIN6_bm; // BTN2_PUSH
+	PORTF.PIN6CTRL |= PORT_PULLUPEN_bm;
+	
+	PORTA.DIRSET = PIN2_bm | PIN3_bm; // LED, LCD_LED
+	
+	PORTA.DIRCLR = PIN5_bm; // BTN1_PUSH
+	PORTA.PIN5CTRL |= PORT_PULLUPEN_bm;
+	
+	PORTC.DIRCLR = PIN3_bm; // BTN2_R2
+	PORTC.PIN3CTRL |= PORT_PULLUPEN_bm;
+	
+	PORTD.DIRCLR = PIN4_bm | PIN5_bm | PIN6_bm; // BTN2_R1, BTN1_R2, BTN1_R1
+	PORTD.PIN4CTRL = PORT_PULLUPEN_bm;
+	PORTD.PIN5CTRL = PORT_PULLUPEN_bm;
+	PORTD.PIN6CTRL = PORT_PULLUPEN_bm;
+	
+	for(int i=0; i < 10; i++)
+	{
+		setLED(true);
+		_delay_ms(100);
+		setLED(false);
+		_delay_ms(100);
+	}
 	
 	// Setup Voltage Reference
 	VREF.ADC0REF = VREF_REFSEL_VDD_gc; // Internal VDD (3.3V) is the max value
@@ -75,12 +120,12 @@ int main(void)
 	ADC0.CTRLA = ADC_CONVMODE_SINGLEENDED_gc | ADC_RESSEL_10BIT_gc;
 	ADC0.CTRLC |= ADC_PRESC_DIV2_gc;
 	ADC0.CTRLD |= ADC_INITDLY_DLY32_gc;
-	//ADC0.MUXPOS = ADC_MUXPOS_AIN31_gc; //PC3 == AIN31
 	ADC0.MUXPOS = ADC_MUXPOS_AIN7_gc;
 	
 	// Setup RTC
 	while (RTC.STATUS > 0);
-	RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
+	//RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
+	RTC.CLKSEL |= RTC_CLKSEL_OSC32K_gc;
 	RTC.PER = 0xFF;
 	RTC.INTCTRL |= RTC_OVF_bm;
 	RTC.CTRLA |= RTC_PRESCALER_DIV128_gc;
@@ -100,49 +145,90 @@ int main(void)
 	spiDisplay.DispPic(background);
 	setTime(&spiDisplay, 0);
 	
-	// Test MISO as pullup input
-	PORTA.DIRCLR = PIN5_bm;
-	PORTA.PIN5CTRL |= PORT_PULLUPEN_bm;
-	PORTC.DIRCLR = PIN3_bm;
-	PORTC.PIN3CTRL |= PORT_PULLUPEN_bm;
-	
-	int currTimeInSec = 0;
+	int currTimeInSec = 10;
 	volatile uint16_t count; 
 	double val;
 	int large;
 	
 	bool isTimerStarted = false;
 
+	bool prevR1 = false;
+	bool prevR2 = false;
+	bool currR1;
+	bool currR2;
 	
     while(1)
     {
-		// Check Buttons
-		if( (!(PORTC.IN & PIN3_bm)) & (TCA0.SINGLE.INTFLAGS & TCA_SINGLE_OVF_bm))
-		{
-			isTimerStarted = !isTimerStarted;
-			TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
-		}
-		
-		if(isTimerStarted & (RTC.INTFLAGS & RTC_OVF_bm))
-		{
-			RTC.INTFLAGS |= RTC_OVF_bm;
-			setTime(&spiDisplay, currTimeInSec);
-			currTimeInSec++;
+		setLED(getBTN1() | getBTN2());
+		//// Check Buttons
+		//setLED(isTimerStarted);
+		//
+		//currR1 = getBTN1_R1();
+		//currR2 = getBTN1_R2();
+		//
+		//if (prevR1 | prevR2)
+		//{
+			//if (currR1 & currR2)
+			//{
+				//if (prevR1 & (!prevR2))
+				//{
+					//currTimeInSec++;
+					//setTime(&spiDisplay, currTimeInSec);	
+				//}
+				//else if ((!prevR1) & prevR2)
+				//{
+					//currTimeInSec--;
+					//setTime(&spiDisplay, currTimeInSec);	
+				//}
+				//
+			//}	
+		//}	
+		//
+		//
+		//prevR1 = currR1;
+		//prevR2 = currR2;
+		//
+		//if( getBTN1() & (TCA0.SINGLE.INTFLAGS & TCA_SINGLE_OVF_bm))
+		//{
+			//isTimerStarted = !isTimerStarted;
+			//TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
+		//}
+		//
+		//if(isTimerStarted & (RTC.INTFLAGS & RTC_OVF_bm))
+		//{
+			//RTC.INTFLAGS |= RTC_OVF_bm;
+			//setTime(&spiDisplay, currTimeInSec);
+			//currTimeInSec--;
 			
-			if((currTimeInSec % 10) == 0)
-			{
-				ADC0.CTRLA |= ADC_ENABLE_bm;
-				ADC0.COMMAND |= ADC_STCONV_bm;
-				while(ADC0.COMMAND & ADC_STCONV_bm);
-				//while(!(ADC0.INTFLAGS & ADC_RESRDY_bm));
-				val = (((double)ADC0.RES / 1024.0) * 3.3);
-				large = (int)val;
-				spiDisplay.setHour(large);
-				spiDisplay.setMinute((int)(val*100) - large*100);
-				
-				ADC0.CTRLA &= ~ADC_ENABLE_bm;	
-			}
-		}
+			//if((currTimeInSec % 10) == 0)
+			//{
+				//ADC0.CTRLA |= ADC_ENABLE_bm;
+				//ADC0.COMMAND |= ADC_STCONV_bm;
+				//while(ADC0.COMMAND & ADC_STCONV_bm);
+				//val = (((double)ADC0.RES / 1024.0) * 3.3);
+				//large = (int)val;
+				//spiDisplay.setHour(large);
+				//spiDisplay.setMinute((int)(val*100) - large*100);
+				//
+				//ADC0.CTRLA &= ~ADC_ENABLE_bm;	
+			//}
+		//}
+		
+		//if (currTimeInSec == -1)
+		//{
+			//for(int i=0; i < 10; i++)
+			//{
+				//setTime(&spiDisplay, currTimeInSec);
+				//setLED(true);
+			//_delay_ms(500);
+			//setLED(false);
+			//_delay_ms(500);	
+			//}
+			//
+			//isTimerStarted = false;
+			//currTimeInSec = 0;
+		//}
+			
     }
 }
 
