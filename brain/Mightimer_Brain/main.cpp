@@ -29,6 +29,16 @@ void setLED(bool state)
 	else PORTA.OUTCLR = PIN3_bm;
 }
 
+double getBattState()
+{
+	ADC0.CTRLA |= ADC_ENABLE_bm;
+	ADC0.COMMAND |= ADC_STCONV_bm;
+	while(ADC0.COMMAND & ADC_STCONV_bm);
+	ADC0.CTRLA &= ~ADC_ENABLE_bm;
+	double voltage = ((((double)ADC0.RES / 1024.0) * 3.3) * 2);
+	return (voltage - 3.6) / 0.8 * 100; // 3.6V = 0%, 4.2% = 100%
+}
+
 
 void setTime(SPI_Display *spiDisplay, long long timeInSec)
 {
@@ -124,8 +134,8 @@ int main(void)
 	
 	// Setup RTC
 	while (RTC.STATUS > 0);
-	//RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
-	RTC.CLKSEL |= RTC_CLKSEL_OSC32K_gc;
+	RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
+	//RTC.CLKSEL |= RTC_CLKSEL_OSC32K_gc;
 	RTC.PER = 0xFF;
 	RTC.INTCTRL |= RTC_OVF_bm;
 	RTC.CTRLA |= RTC_PRESCALER_DIV128_gc;
@@ -150,7 +160,7 @@ int main(void)
 	double val;
 	int large;
 	
-	bool isTimerStarted = false;
+	bool isTimerStarted = true;
 
 	bool prevR1 = false;
 	bool prevR2 = false;
@@ -159,75 +169,61 @@ int main(void)
 	
     while(1)
     {
-		setLED(getBTN1() | getBTN2());
-		//// Check Buttons
-		//setLED(isTimerStarted);
-		//
-		//currR1 = getBTN1_R1();
-		//currR2 = getBTN1_R2();
-		//
-		//if (prevR1 | prevR2)
-		//{
-			//if (currR1 & currR2)
-			//{
-				//if (prevR1 & (!prevR2))
-				//{
-					//currTimeInSec++;
-					//setTime(&spiDisplay, currTimeInSec);	
-				//}
-				//else if ((!prevR1) & prevR2)
-				//{
-					//currTimeInSec--;
-					//setTime(&spiDisplay, currTimeInSec);	
-				//}
-				//
-			//}	
-		//}	
-		//
-		//
-		//prevR1 = currR1;
-		//prevR2 = currR2;
-		//
-		//if( getBTN1() & (TCA0.SINGLE.INTFLAGS & TCA_SINGLE_OVF_bm))
-		//{
-			//isTimerStarted = !isTimerStarted;
-			//TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
-		//}
-		//
-		//if(isTimerStarted & (RTC.INTFLAGS & RTC_OVF_bm))
-		//{
-			//RTC.INTFLAGS |= RTC_OVF_bm;
-			//setTime(&spiDisplay, currTimeInSec);
-			//currTimeInSec--;
-			
-			//if((currTimeInSec % 10) == 0)
-			//{
-				//ADC0.CTRLA |= ADC_ENABLE_bm;
-				//ADC0.COMMAND |= ADC_STCONV_bm;
-				//while(ADC0.COMMAND & ADC_STCONV_bm);
-				//val = (((double)ADC0.RES / 1024.0) * 3.3);
-				//large = (int)val;
-				//spiDisplay.setHour(large);
-				//spiDisplay.setMinute((int)(val*100) - large*100);
-				//
-				//ADC0.CTRLA &= ~ADC_ENABLE_bm;	
-			//}
-		//}
+		// Check Buttons
+		setLED(isTimerStarted);
 		
-		//if (currTimeInSec == -1)
-		//{
-			//for(int i=0; i < 10; i++)
-			//{
-				//setTime(&spiDisplay, currTimeInSec);
-				//setLED(true);
-			//_delay_ms(500);
-			//setLED(false);
-			//_delay_ms(500);	
-			//}
-			//
-			//isTimerStarted = false;
-			//currTimeInSec = 0;
-		//}
+		currR1 = getBTN1_R1();
+		currR2 = getBTN1_R2();
+		
+		if (prevR1 | prevR2)
+		{
+			if (currR1 & currR2)
+			{
+				if (prevR1 & (!prevR2))
+				{
+					currTimeInSec++;
+					setTime(&spiDisplay, currTimeInSec);	
+				}
+				else if ((!prevR1) & prevR2)
+				{
+					currTimeInSec--;
+					setTime(&spiDisplay, currTimeInSec);	
+				}
+				
+			}	
+		}	
+		
+		
+		prevR1 = currR1;
+		prevR2 = currR2;
+		
+		if( getBTN1() & (TCA0.SINGLE.INTFLAGS & TCA_SINGLE_OVF_bm))
+		{
+			isTimerStarted = !isTimerStarted;
+			TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
+		}
+		
+		if(isTimerStarted & (RTC.INTFLAGS & RTC_OVF_bm))
+		{
+			RTC.INTFLAGS |= RTC_OVF_bm;
+			setTime(&spiDisplay, currTimeInSec);
+			currTimeInSec++;
+		}
+		
+		if (currTimeInSec == -1)
+		{
+			for(int i=0; i < 10; i++)
+			{
+				setTime(&spiDisplay, currTimeInSec);
+				setLED(true);
+			_delay_ms(500);
+			setLED(false);
+			_delay_ms(500);	
+			}
+			
+			isTimerStarted = false;
+			currTimeInSec = 0;
+		}
 			
     }
 }
