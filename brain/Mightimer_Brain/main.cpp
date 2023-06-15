@@ -11,7 +11,9 @@
 #include <time.h>
 #include "display.h"
 #include "heximage.h"
+#include "Timer.h"
 #define USART0_BAUD_RATE(BAUD_RATE) ((float)(F_CPU * 64 / (16 * (float)BAUD_RATE)) + 0.5)
+#define TCA0_CLOCK(MS) ((1000.0f / (2000000.0f / 1024.0f)) * (float)MS)
 
 int currSecond = -1;
 int currMinute = -1;
@@ -51,16 +53,31 @@ void setTime(SPI_Display *spiDisplay, long long timeInSec)
 	if(currHour != hour) spiDisplay->setHour(hour);
 }
 
+enum Mode
+{
+	Mode_Normal,
+	Mode_SetTime,
+	Mode_SetAdvance
+};
+
 int main(void)
 {
 	// Select Main Clock as internal high-freq oscillator
-	uint8_t temp = CLKCTRL.MCLKCTRLA;
+	uint8_t temp = CLKCTRL.OSCHFCTRLA;
+	temp = CLKCTRL_FRQSEL_2M_gc; // Internal high-freq oscillator to 2MHz
+	CPU_CCP = CCP_IOREG_gc;
+	CLKCTRL.OSCHFCTRLA = temp;
+	
+	temp = CLKCTRL.MCLKCTRLA;
 	temp = CLKCTRL_CLKSEL_OSCHF_gc; // Internal high-freq oscillator
 	CPU_CCP = CCP_IOREG_gc;
 	CLKCTRL.MCLKCTRLA = temp;
 	
+	
 	// Check if main clock is synced
 	while (CLKCTRL.MCLKSTATUS & CLKCTRL_SOSC_bm);
+	
+	PORTA.OUTSET = PIN3_bm;
 
 	// Set External 32kHz oscillator
 	temp = CLKCTRL.XOSC32KCTRLA;
@@ -78,6 +95,7 @@ int main(void)
 	// Check enabled
 	while (!(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));	
 	
+	PORTA.OUTCLR = PIN3_bm;
 	// Setup Ports	
 	/*
 	PF6 : BTN2 PUSH
@@ -98,7 +116,6 @@ int main(void)
 	PD7 : BATT_LEVEL
 	*/
 	
-	
 	PORTF.DIRCLR = PIN6_bm; // BTN2_PUSH
 	PORTF.PIN6CTRL |= PORT_PULLUPEN_bm;
 	
@@ -115,27 +132,18 @@ int main(void)
 	PORTD.PIN5CTRL = PORT_PULLUPEN_bm;
 	PORTD.PIN6CTRL = PORT_PULLUPEN_bm;
 	
-	for(int i=0; i < 10; i++)
-	{
-		setLED(true);
-		_delay_ms(100);
-		setLED(false);
-		_delay_ms(100);
-	}
-	
 	// Setup Voltage Reference
-	VREF.ADC0REF = VREF_REFSEL_VDD_gc; // Internal VDD (3.3V) is the max value
+	//VREF.ADC0REF = VREF_REFSEL_VDD_gc; // Internal VDD (3.3V) is the max value
 	
 	// Setup ADC
-	ADC0.CTRLA = ADC_CONVMODE_SINGLEENDED_gc | ADC_RESSEL_10BIT_gc;
-	ADC0.CTRLC |= ADC_PRESC_DIV2_gc;
-	ADC0.CTRLD |= ADC_INITDLY_DLY32_gc;
-	ADC0.MUXPOS = ADC_MUXPOS_AIN7_gc;
+	//ADC0.CTRLA = ADC_CONVMODE_SINGLEENDED_gc | ADC_RESSEL_10BIT_gc;
+	//ADC0.CTRLC |= ADC_PRESC_DIV2_gc;
+	//ADC0.CTRLD |= ADC_INITDLY_DLY32_gc;
+	//ADC0.MUXPOS = ADC_MUXPOS_AIN7_gc;
 	
-	// Setup RTC
+	// Setup RTC for second tracking
 	while (RTC.STATUS > 0);
 	RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
-	//RTC.CLKSEL |= RTC_CLKSEL_OSC32K_gc;
 	RTC.PER = 0xFF;
 	RTC.INTCTRL |= RTC_OVF_bm;
 	RTC.CTRLA |= RTC_PRESCALER_DIV128_gc;
@@ -144,9 +152,9 @@ int main(void)
 	while(RTC.STATUS);
 	RTC.CTRLA |= RTC_RTCEN_bm;
 	
-	// Setup TCA (Counter A)
-	TCA0.SINGLE.PER = 0x00FF;
-	TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm;
+	// Setup TCA (Counter A) for millis function
+	TCA0.SINGLE.PER = 0xFFFF;
+	TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1024_gc | TCA_SINGLE_ENABLE_bm; // CLK_PER = 2MHz, Clock = 2MHz/1024 = 1/1953.125 = 0.512ms
 	
 	// SPI Display Setup
 	SPI_Display spiDisplay = SPI_Display();
@@ -155,75 +163,112 @@ int main(void)
 	spiDisplay.DispPic(background);
 	setTime(&spiDisplay, 0);
 	
-	int currTimeInSec = 10;
-	volatile uint16_t count; 
-	double val;
-	int large;
+	// Default UI Setup
+	Timer timer[3] = {Timer(), Timer(), Timer()};
 	
-	bool isTimerStarted = true;
-
 	bool prevR1 = false;
 	bool prevR2 = false;
 	bool currR1;
 	bool currR2;
 	
+	long currTimeInSec = 0;
+	
+	int currentMode = Mode_Normal;
+	int currentTab = 0;
+	
+	/* Button Press Logic
+	// detect fall
+	// get time between rise and fall
+	// If the time between rise and fall is big enough, than register as a vaild click
+	*/
+	uint16_t currentTCA = 0;
+	bool prevB2 = false;
+	bool currB2 = false;
+	uint16_t lastRiseTime_B2 = 0;
+	
     while(1)
     {
-		// Check Buttons
-		setLED(isTimerStarted);
-		
-		currR1 = getBTN1_R1();
-		currR2 = getBTN1_R2();
-		
-		if (prevR1 | prevR2)
+		currentTCA = TCA0.SINGLE.CNT;
+		switch (currentMode)
 		{
-			if (currR1 & currR2)
+			case Mode_Normal:
+			if (timer[currentTab].isEnabled)
 			{
-				if (prevR1 & (!prevR2))
+				// update current screen
+				
+				
+				
+				// Check 
+			}
+			else
+			{
+				// Check Button2 Press
+				currB2 = getBTN2();
+				if(!prevB2 & currB2) // Rise
 				{
-					currTimeInSec++;
-					setTime(&spiDisplay, currTimeInSec);	
+					lastRiseTime_B2 = TCA0.SINGLE.CNT;
 				}
-				else if ((!prevR1) & prevR2)
+				if(prevB2 & !currB2) // Fall
 				{
-					currTimeInSec--;
-					setTime(&spiDisplay, currTimeInSec);	
+					if(currentTCA - lastRiseTime_B2 > 10)
+					{
+						// Start Timer
+						timer[currentTab].isEnabled = true;
+						timer[currentTab].RTC_start_count = RTC.CNT;
+						
+					}
 				}
 				
-			}	
-		}	
-		
-		
-		prevR1 = currR1;
-		prevR2 = currR2;
-		
-		if( getBTN1() & (TCA0.SINGLE.INTFLAGS & TCA_SINGLE_OVF_bm))
-		{
-			isTimerStarted = !isTimerStarted;
-			TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
-		}
-		
-		if(isTimerStarted & (RTC.INTFLAGS & RTC_OVF_bm))
-		{
-			RTC.INTFLAGS |= RTC_OVF_bm;
-			setTime(&spiDisplay, currTimeInSec);
-			currTimeInSec++;
-		}
-		
-		if (currTimeInSec == -1)
-		{
-			for(int i=0; i < 10; i++)
-			{
-				setTime(&spiDisplay, currTimeInSec);
-				setLED(true);
-			_delay_ms(500);
-			setLED(false);
-			_delay_ms(500);	
 			}
 			
-			isTimerStarted = false;
-			currTimeInSec = 0;
+			// Check if screen should be updated
+			if(timer[currentTab].isEnabled & (RTC.INTFLAGS & RTC_OVF_bm) & (RTC.CNT > timer[currentTab].RTC_start_count))
+			{
+				RTC.INTFLAGS |= RTC_OVF_bm;
+				setTime(&spiDisplay, currTimeInSec);
+				currTimeInSec++;
+			}
+			
+			break;
+			case Mode_SetTime:
+			// check buttons
+			break;
+			case Mode_SetAdvance:
+			// check buttons
+			break;
 		}
+		
+		setLED(timer[currentTab].isEnabled);
+		
+		
+				
+		
+		
+		
+		//currR1 = getBTN1_R1();
+		//currR2 = getBTN1_R2();
+		//
+		//if (prevR1 | prevR2)
+		//{
+			//if (currR1 & currR2)
+			//{
+				//if (prevR1 & (!prevR2))
+				//{
+					//currTimeInSec++;
+					//setTime(&spiDisplay, currTimeInSec);	
+				//}
+				//else if ((!prevR1) & prevR2)
+				//{
+					//currTimeInSec--;
+					//setTime(&spiDisplay, currTimeInSec);	
+				//}
+				//
+			//}	
+		//}	
+		//
+		//
+		//prevR1 = currR1;
+		//prevR2 = currR2;
 			
     }
 }

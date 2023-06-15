@@ -8,20 +8,21 @@
 
 #ifndef TIMER_H_
 #define TIMER_H_
-
+#include <stdint-gcc.h>
 class Timer
 {
 	public:
-		long seconds = 0;
-		uint16_t RTC_start_counter;
-		bool isCountUp = true;
-		bool isEnabled = false;
-		int linked = 0;
-		bool isLightAlarm = true;
-		bool isSoundAlarm = false;
+		long seconds;
+		uint16_t RTC_start_count;
+		bool isCountUp;
+		bool isEnabled;
+		int linked;
+		bool isLightAlarm;
+		bool isSoundAlarm;
 		
 		void start();
 		void stop();
+		Timer();
 	};
 
 
