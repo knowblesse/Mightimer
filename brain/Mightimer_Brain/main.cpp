@@ -6,25 +6,25 @@
  */ 
 
 #define F_CPU 4000000UL
-#include <avr/io.h>
+
+#ifdef __cplusplus
+extern "C" {
+	#endif
+	#include <avr/io.h>
+	#include <avr/cpufunc.h>
+	#ifdef __cplusplus
+}
+#endif
+
+#include <avr/interrupt.h>
 #include <util/delay.h>
 #include <time.h>
 #include "display.h"
 #include "heximage.h"
 #include "Timer.h"
-#define USART0_BAUD_RATE(BAUD_RATE) ((float)(F_CPU * 64 / (16 * (float)BAUD_RATE)) + 0.5)
+
 #define TCA0_CLOCK(MS) ((1000.0f / (2000000.0f / 1024.0f)) * (float)MS)
 
-int currSecond = -1;
-int currMinute = -1;
-int currHour = -1;
-
-bool getBTN1() {return !(PORTA.IN & PIN5_bm);}
-bool getBTN2() {return !(PORTF.IN & PIN6_bm);}
-bool getBTN1_R1() {return !(PORTD.IN & PIN6_bm);}
-bool getBTN1_R2() {return !(PORTD.IN & PIN5_bm);}
-bool getBTN2_R1() {return !(PORTD.IN & PIN4_bm);}
-bool getBTN2_R2() {return !(PORTC.IN & PIN3_bm);}
 void setLED(bool state)
 {
 	if (state) PORTA.OUTSET = PIN3_bm;
@@ -41,6 +41,22 @@ double getBattState()
 	return (voltage - 3.6) / 0.8 * 100; // 3.6V = 0%, 4.2% = 100%
 }
 
+enum Mode
+{
+	Mode_Normal,
+	Mode_SetTime,
+	Mode_SetAdvance
+};
+
+// Global Variables
+int currentMode = Mode_Normal;
+int currSecond = -1;
+int currMinute = -1;
+int currHour = -1;
+volatile int BtnL_inc = 0;
+volatile int BtnR_inc = 0;
+volatile int allInt = 0;
+volatile uint16_t rotationTCA = 0;
 
 void setTime(SPI_Display *spiDisplay, long long timeInSec)
 {
@@ -53,17 +69,47 @@ void setTime(SPI_Display *spiDisplay, long long timeInSec)
 	if(currHour != hour) spiDisplay->setHour(hour);
 }
 
-enum Mode
+ISR(PORTD_PORT_vect)
 {
-	Mode_Normal,
-	Mode_SetTime,
-	Mode_SetAdvance
-};
+	if (TCA0.SINGLE.CNT - rotationTCA > 40)
+	{
+		if (currentMode == Mode_Normal)
+		{
+			currentMode = Mode_SetTime;
+		}
+		else if (currentMode == Mode_SetTime)
+		{
+			if (PORTD.INTFLAGS & PIN6_bm) // BtnL
+			{
+				if (!(PORTD.IN & PIN5_bm)) BtnL_inc++; // R1 is lagging
+				else BtnL_inc--;			
+			}
+			else // BtnR
+			{
+				if (!(PORTC.IN & PIN3_bm))
+				{ 
+					BtnR_inc++; // R1 is lagging
+				}
+				else BtnR_inc--;
+			}
+		}
+		rotationTCA = TCA0.SINGLE.CNT;
+	}
+	
+	PORTD.INTFLAGS = PORTD.INTFLAGS;
+}
+
+ISR(RTC_CNT_vect)
+{
+	RTC.INTFLAGS |= RTC_OVF_bm;
+}
 
 int main(void)
 {
+	uint8_t temp;
+
 	// Select Main Clock as internal high-freq oscillator
-	uint8_t temp = CLKCTRL.OSCHFCTRLA;
+	temp = CLKCTRL.OSCHFCTRLA;
 	temp = CLKCTRL_FRQSEL_2M_gc; // Internal high-freq oscillator to 2MHz
 	CPU_CCP = CCP_IOREG_gc;
 	CLKCTRL.OSCHFCTRLA = temp;
@@ -73,29 +119,31 @@ int main(void)
 	CPU_CCP = CCP_IOREG_gc;
 	CLKCTRL.MCLKCTRLA = temp;
 	
-	
+		
 	// Check if main clock is synced
 	while (CLKCTRL.MCLKSTATUS & CLKCTRL_SOSC_bm);
-	
-	PORTA.OUTSET = PIN3_bm;
 
 	// Set External 32kHz oscillator
 	temp = CLKCTRL.XOSC32KCTRLA;
-	temp &= ~CLKCTRL_SEL_bm; // select i'm using two pins for oscillator
-	temp |= CLKCTRL_RUNSTBY_bm; // always running. maybe not necessary
-	CPU_CCP = CCP_IOREG_gc;
-	CLKCTRL.XOSC32KCTRLA = temp;
+	temp &= ~CLKCTRL_ENABLE_bm;
+	ccp_write_io((uint8_t *) &CLKCTRL.XOSC32KCTRLA, temp);
+
 	
-	// Enable External 32kHz oscillator
+	while(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm){}
+	
+	temp &= ~CLKCTRL_SEL_bm; // select i'm using two pins for oscillator
+	
 	temp = CLKCTRL.XOSC32KCTRLA;
 	temp |= CLKCTRL_ENABLE_bm;
-	CPU_CCP = CCP_IOREG_gc;
-	CLKCTRL.XOSC32KCTRLA = temp;
+	temp |= CLKCTRL_RUNSTBY_bm; // always running. maybe not necessary
+	ccp_write_io((uint8_t *) &CLKCTRL.XOSC32KCTRLA, temp);
+	
+	while (!(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));	
+	
 	
 	// Check enabled
 	while (!(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm));	
 	
-	PORTA.OUTCLR = PIN3_bm;
 	// Setup Ports	
 	/*
 	PF6 : BTN2 PUSH
@@ -128,9 +176,9 @@ int main(void)
 	PORTC.PIN3CTRL |= PORT_PULLUPEN_bm;
 	
 	PORTD.DIRCLR = PIN4_bm | PIN5_bm | PIN6_bm; // BTN2_R1, BTN1_R2, BTN1_R1
-	PORTD.PIN4CTRL = PORT_PULLUPEN_bm;
+	PORTD.PIN4CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // BTN2_R1
 	PORTD.PIN5CTRL = PORT_PULLUPEN_bm;
-	PORTD.PIN6CTRL = PORT_PULLUPEN_bm;
+	PORTD.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // BTN1_R1
 	
 	// Setup Voltage Reference
 	//VREF.ADC0REF = VREF_REFSEL_VDD_gc; // Internal VDD (3.3V) is the max value
@@ -144,6 +192,7 @@ int main(void)
 	// Setup RTC for second tracking
 	while (RTC.STATUS > 0);
 	RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
+	RTC.DBGCTRL |= RTC_DBGRUN_bm;
 	RTC.PER = 0xFF;
 	RTC.INTCTRL |= RTC_OVF_bm;
 	RTC.CTRLA |= RTC_PRESCALER_DIV128_gc;
@@ -154,7 +203,7 @@ int main(void)
 	
 	// Setup TCA (Counter A) for millis function
 	TCA0.SINGLE.PER = 0xFFFF;
-	TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1024_gc | TCA_SINGLE_ENABLE_bm; // CLK_PER = 2MHz, Clock = 2MHz/1024 = 1/1953.125 = 0.512ms
+	TCA0.SINGLE.CTRLA = TCA_SINGLE_DBGRUN_bm | TCA_SINGLE_CLKSEL_DIV1024_gc | TCA_SINGLE_ENABLE_bm; // CLK_PER = 2MHz, Clock = 2MHz/1024 = 1/1953.125 = 0.512ms
 	
 	// SPI Display Setup
 	SPI_Display spiDisplay = SPI_Display();
@@ -166,110 +215,94 @@ int main(void)
 	// Default UI Setup
 	Timer timer[3] = {Timer(), Timer(), Timer()};
 	
-	bool prevR1 = false;
-	bool prevR2 = false;
-	bool currR1;
-	bool currR2;
-	
 	long currTimeInSec = 0;
 	
-	int currentMode = Mode_Normal;
 	int currentTab = 0;
 	
 	/* Button Press Logic
 	// detect fall
 	// get time between rise and fall
-	// If the time between rise and fall is big enough, than register as a vaild click
+	// If the time between rise and fall is big enough, than register as a valid click
 	*/
-	uint16_t currentTCA = 0;
-	bool prevB2 = false;
-	bool currB2 = false;
-	uint16_t lastRiseTime_B2 = 0;
+	uint16_t currentTCA;
+	
+	
+	// Rotations
+	//Encoder Ecd_L = Encoder(&PORTD.IN, 6, &PORTD.IN, 5);
+	//Encoder Ecd_R = Encoder(&PORTD.IN, 4, &PORTC.IN, 3);
+	
+	// Clicks
+	Button Btn_L = Button(&PORTA.IN, 5);
+	Button Btn_R = Button(&PORTF.IN, 6);
+
+	sei();
 	
     while(1)
     {
 		currentTCA = TCA0.SINGLE.CNT;
+		//Btn_L.readButton(currentTCA);
+		//Btn_R.readButton(currentTCA);
+		//Ecd_L.readEncoder();
+		//Ecd_R.readEncoder();
+	
+		
+		// Check Mode
 		switch (currentMode)
 		{
 			case Mode_Normal:
-			if (timer[currentTab].isEnabled)
-			{
-				// update current screen
-				
-				
-				
-				// Check 
-			}
-			else
-			{
-				// Check Button2 Press
-				currB2 = getBTN2();
-				if(!prevB2 & currB2) // Rise
+				if (timer[currentTab].isEnabled)
 				{
-					lastRiseTime_B2 = TCA0.SINGLE.CNT;
-				}
-				if(prevB2 & !currB2) // Fall
-				{
-					if(currentTCA - lastRiseTime_B2 > 10)
+					// update current screen
+				
+					if(Btn_R.state) // Check Stop
 					{
-						// Start Timer
-						timer[currentTab].isEnabled = true;
-						timer[currentTab].RTC_start_count = RTC.CNT;
-						
+						timer[currentTab].isEnabled = false;
 					}
 				}
+				else
+				{
+					if(Btn_R.state) // Start Timer
+					{
+						timer[currentTab].isEnabled = true;
+						timer[currentTab].RTC_start_count = RTC.CNT;
+					}
 				
-			}
+				}
 			
-			// Check if screen should be updated
-			if(timer[currentTab].isEnabled & (RTC.INTFLAGS & RTC_OVF_bm) & (RTC.CNT > timer[currentTab].RTC_start_count))
-			{
-				RTC.INTFLAGS |= RTC_OVF_bm;
-				setTime(&spiDisplay, currTimeInSec);
-				currTimeInSec++;
-			}
+				// Check if screen should be updated
+				if(timer[currentTab].isEnabled & (RTC.INTFLAGS & RTC_OVF_bm) & (RTC.CNT > timer[currentTab].RTC_start_count))
+				{
+					RTC.INTFLAGS |= RTC_OVF_bm;
+					setTime(&spiDisplay, currTimeInSec);
+					currTimeInSec++;
+				}
 			
-			break;
+				break;
+				
 			case Mode_SetTime:
-			// check buttons
+				setLED(true);
+				// check buttons
+				if (BtnR_inc != 0)
+				{
+					currTimeInSec += BtnR_inc;
+					BtnR_inc = 0; 
+					setTime(&spiDisplay, currTimeInSec);
+				}
+
+				
+				// Check if screen should be updated
+				
+				
 			break;
 			case Mode_SetAdvance:
 			// check buttons
 			break;
 		}
 		
-		setLED(timer[currentTab].isEnabled);
-		
-		
-				
-		
-		
-		
-		//currR1 = getBTN1_R1();
-		//currR2 = getBTN1_R2();
-		//
-		//if (prevR1 | prevR2)
-		//{
-			//if (currR1 & currR2)
-			//{
-				//if (prevR1 & (!prevR2))
-				//{
-					//currTimeInSec++;
-					//setTime(&spiDisplay, currTimeInSec);	
-				//}
-				//else if ((!prevR1) & prevR2)
-				//{
-					//currTimeInSec--;
-					//setTime(&spiDisplay, currTimeInSec);	
-				//}
-				//
-			//}	
-		//}	
-		//
-		//
-		//prevR1 = currR1;
-		//prevR2 = currR2;
+		//setLED(timer[currentTab].isEnabled);
 			
     }
 }
+
+
 
