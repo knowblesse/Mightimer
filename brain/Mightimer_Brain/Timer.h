@@ -13,7 +13,7 @@
 
 enum TimerStatus
 {
-	Status_Stop,
+	Status_Initial,
 	Status_Paused,
 	Status_FirstMoving,
 	Status_Resumed
@@ -44,34 +44,9 @@ class Button
 		uint8_t pinNum;
 		bool prevB;
 		bool currB;
-		bool state;
 		uint16_t lastRiseTime;
 		
 		Button(register8_t* reg, uint8_t pinNum);
 		bool readButton(uint16_t currentTCA);
 	};
-
-class Encoder
-{
-	public:
-		bool prevR1;
-		bool prevR2;
-		bool currR1;
-		bool currR2;
-		
-		bool test;
-		
-		register8_t* reg1;
-		register8_t* reg2;
-		
-		uint8_t pinNum1;
-		uint8_t pinNum2;
-		
-		int state;
-		
-		Encoder(register8_t* reg1, uint8_t pinNum1, register8_t* reg2, uint8_t pinNum2);
-		bool readEncoder();
-	};
-
-
 #endif /* TIMER_H_ */

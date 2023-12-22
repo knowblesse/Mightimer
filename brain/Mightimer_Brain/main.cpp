@@ -25,14 +25,12 @@ extern "C" {
 
 #define TCA0_CLOCK(MS) ((1000.0f / (2000000.0f / 1024.0f)) * (float)MS)
 
-void setLED(bool state)
-{
+void setLED(bool state){
 	if (state) PORTA.OUTSET = PIN3_bm;
 	else PORTA.OUTCLR = PIN3_bm;
 }
 
-double getBattState()
-{
+double getBattState(){
 	ADC0.CTRLA |= ADC_ENABLE_bm;
 	ADC0.COMMAND |= ADC_STCONV_bm;
 	while(ADC0.COMMAND & ADC_STCONV_bm);
@@ -41,8 +39,7 @@ double getBattState()
 	return (voltage - 3.6) / 0.8 * 100; // 3.6V = 0%, 4.2% = 100%
 }
 
-enum Mode
-{
+enum Mode{
 	Mode_Normal,
 	Mode_SetTime,
 	Mode_SetAdvance
@@ -55,12 +52,12 @@ int currMinute = -1;
 int currHour = -1;
 volatile int BtnL_inc = 0;
 volatile int BtnR_inc = 0;
+volatile bool BtnR_pushed = false;
 volatile int allInt = 0;
 volatile uint16_t rotationTCA = 0;
 volatile int numRTC_OVR_cnt = 0;
 
-void setTime(SPI_Display *spiDisplay, long long timeInSec)
-{
+void setTime(SPI_Display *spiDisplay, long long timeInSec){
 	int hour = (int)((double)timeInSec / 3600.0);
 	int minute = (int)((double)(timeInSec - 3600*hour) / 60.0);
 	int second = timeInSec % 60;
@@ -70,36 +67,41 @@ void setTime(SPI_Display *spiDisplay, long long timeInSec)
 	if(currHour != hour) spiDisplay->setHour(hour);
 }
 
-ISR(PORTD_PORT_vect)
-{
-	if (TCA0.SINGLE.CNT - rotationTCA > 40)
-	{
-		if (currentMode == Mode_Normal)
-		{
+// ISR for rotation event
+ISR(PORTD_PORT_vect){
+	// First, check debounce
+	if (TCA0.SINGLE.CNT - rotationTCA > 40){
+		//Then, check `currentMode`
+		if (currentMode == Mode_Normal){
+			// If a rotation occurred during normal mode, go to set time mode
 			currentMode = Mode_SetTime;
 		}
-		else if (currentMode == Mode_SetTime)
-		{
-			if (PORTD.INTFLAGS & PIN6_bm) // BtnL
-			{
+		else if (currentMode == Mode_SetTime){
+			// If a rotation occurred during set time mode, 
+			// Check which encoder evoked the interrupt
+			// Left one
+			if (PORTD.INTFLAGS & PIN6_bm){
 				if (!(PORTD.IN & PIN5_bm)) BtnL_inc++; // R1 is lagging
 				else BtnL_inc--;			
 			}
-			else // BtnR
-			{
-				if (!(PORTC.IN & PIN3_bm))
-				{ 
-					BtnR_inc++; // R1 is lagging
-				}
+			// Right one
+			else{
+				if (!(PORTC.IN & PIN3_bm)) BtnR_inc++; // R1 is lagging
 				else BtnR_inc--;
 			}
 		}
-		rotationTCA = TCA0.SINGLE.CNT;
+		rotationTCA = TCA0.SINGLE.CNT; // set the new time for the debounce
 	}
-	
-	PORTD.INTFLAGS = PORTD.INTFLAGS;
+	PORTD.INTFLAGS = PORTD.INTFLAGS; // clear flag
 }
 
+ISR(PORTF_PORT_vect){
+	if(PORTF.INTFLAGS & PIN6_bm){
+		BtnR_pushed = true;
+	}
+	PORTF.INTFLAGS = PORTF.INTFLAGS; // clear flag
+}
+	
 ISR(RTC_CNT_vect)
 {
 	numRTC_OVR_cnt++;
@@ -167,7 +169,7 @@ int main(void)
 	*/
 	
 	PORTF.DIRCLR = PIN6_bm; // BTN2_PUSH
-	PORTF.PIN6CTRL |= PORT_PULLUPEN_bm;
+	PORTF.PIN6CTRL |= PORT_PULLUPEN_bm | PORT_ISC_RISING_gc;
 	
 	PORTA.DIRSET = PIN2_bm | PIN3_bm; // LED, LCD_LED
 	
@@ -228,12 +230,7 @@ int main(void)
 	// get time between rise and fall
 	// If the time between rise and fall is big enough, than register as a valid click
 	*/
-	uint16_t currentTCA;
-	
-	
-	// Rotations
-	//Encoder Ecd_L = Encoder(&PORTD.IN, 6, &PORTD.IN, 5);
-	//Encoder Ecd_R = Encoder(&PORTD.IN, 4, &PORTC.IN, 3);
+	volatile uint16_t currentTCA;
 	
 	// Clicks
 	Button Btn_L = Button(&PORTA.IN, 5);
@@ -242,101 +239,95 @@ int main(void)
 	sei();
 	
 	uint16_t t;
-    while(1)
-    {
+    
+	while(1){
 		currentTCA = TCA0.SINGLE.CNT;
 		Btn_L.readButton(currentTCA);
-		Btn_R.readButton(currentTCA);
-		//Ecd_L.readEncoder();
-		//Ecd_R.readEncoder();
 		
+	
 		t = RTC.CNT;
 		// Check Count
-		if (numRTC_OVR_cnt > 0)
-		{
-			if (timer[currentTab].isEnabled > 1)
-			{
+		if (numRTC_OVR_cnt > 0){
+			if (timer[currentTab].isEnabled > 1){
 				timer[currentTab].rtc_ovf_reached = true;
 			}
 			numRTC_OVR_cnt = 0;
 		}
-
+	
 		// Check CNT
-		if (timer[currentTab].isEnabled > 1 && timer[currentTab].rtc_ovf_reached)
-		{
-			if (t >= timer[currentTab].time_criterion)
-			{
-				timer[currentTab].seconds++;
-				timer[currentTab].rtc_ovf_reached = false;
-			}	
-
+		if (timer[currentTab].isEnabled > 1 && timer[currentTab].rtc_ovf_reached){
+			if (t >= timer[currentTab].time_criterion){
+			timer[currentTab].seconds++;
+			timer[currentTab].rtc_ovf_reached = false;
+			}
 		}
-
-		
+	
 		// Check Mode
-		switch (currentMode)
-		{
+		switch (currentMode){
 			case Mode_Normal:
-				if (timer[currentTab].isEnabled > 1)// either first moving or resumed
-				{
-					// update current screen
+				// In the normal mode, the currently showing timer can either be moving or not.
 				
-					if(Btn_R.state) // Paused. To be stopped, either time limit must be reached, or be reset.
-					{
-						t = RTC.CNT;
-						timer[currentTab].isEnabled = Status_Paused;
-						timer[currentTab].time_criterion = 0xFF - (t - timer[currentTab].time_criterion);
-					}
-				}
-				else
-				{
-					if(Btn_R.state) // Start Timer
-					{
-						if (timer[currentTab].isEnabled == Status_Stop)
-						{
-							 timer[currentTab].isEnabled = Status_FirstMoving;
-							 timer[currentTab].time_criterion = RTC.CNT;
-						}
-						else // Paused. Now resume
-						{
-							timer[currentTab].isEnabled = Status_Resumed; 
+				//TODO: Change this into interrupt
+				if(BtnR_pushed){// Right button is pushed. 
+					BtnR_pushed = false;
+					switch (timer[currentTab].isEnabled){
+						case Status_Initial: // The initial state of the timer
+							timer[currentTab].isEnabled = Status_FirstMoving;
+							timer[currentTab].time_criterion = RTC.CNT;
+							setLED(true);
+							break;
+						case Status_Paused: // If the timer was paused, it can be resumed
+							timer[currentTab].isEnabled = Status_Resumed;
 							timer[currentTab].time_criterion = RTC.CNT + timer[currentTab].time_criterion;
-						}
+							setLED(true);
+							break;
+						case Status_FirstMoving: // If the timer was first moving, 
+						case Status_Resumed: // or if the timer was resumed,
+							//it can be paused
+							//or time limit can be reached (count-down only)
+							t = RTC.CNT;
+							timer[currentTab].isEnabled = Status_Paused;
+							timer[currentTab].time_criterion = 0xFF - (t - timer[currentTab].time_criterion);
+							setLED(false);
+							break;
 					}
 				}
-			
+	
 				// Check if screen should be updated
-				if(timer[currentTab].seconds != currTabLastSecond)
-				{
+				if(timer[currentTab].seconds != currTabLastSecond){
 					setTime(&spiDisplay, timer[currentTab].seconds);
 				}
-			
 				break;
-				
+	
 			case Mode_SetTime:
 				setLED(true);
-				// check buttons
-				if (BtnR_inc != 0)
-				{
+				// If rotation interrupt has occurred, and BtnR_inc is not zero,
+				// apply the changed value into the currTimeInSec and reset BtnR_inc
+				if (BtnR_inc != 0){
 					currTimeInSec += BtnR_inc;
-					BtnR_inc = 0; 
+					if(currTimeInSec < 0) currTimeInSec = 0;
+					BtnR_inc = 0;
 					setTime(&spiDisplay, currTimeInSec);
 				}
-
 				
+				if(BtnR_pushed){
+					BtnR_pushed = false;
+					currentMode = Mode_Normal;
+				}
+	
 				// Check if screen should be updated
-				
-				
-			break;
+				break;
 			case Mode_SetAdvance:
-			// check buttons
-			break;
+				// check buttons
+				break;
+			}
 		}
-		
-		setLED(timer[currentTab].isEnabled > 1);
-			
-    }
+	
 }
+
+
+
+
 
 
 
