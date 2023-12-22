@@ -10,13 +10,23 @@
 #define TIMER_H_
 #include <stdint-gcc.h>
 #include <avr/io.h>
+
+enum TimerStatus
+{
+	Status_Stop,
+	Status_Paused,
+	Status_FirstMoving,
+	Status_Resumed
+};
+
 class Timer
 {
 	public:
 		long seconds;
-		uint16_t RTC_start_count;
+		uint8_t time_criterion;
+		bool rtc_ovf_reached;
 		bool isCountUp;
-		bool isEnabled;
+		int isEnabled;
 		int linked;
 		bool isLightAlarm;
 		bool isSoundAlarm;

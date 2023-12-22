@@ -11,7 +11,8 @@ Timer::Timer()
 {
 	seconds = 0;
 	isCountUp = true;
-	isEnabled = false;
+	isEnabled = Status_Stop;
+	rtc_ovf_reached = false;
 	linked = 0;
 	isLightAlarm = true;
 	isSoundAlarm = false;

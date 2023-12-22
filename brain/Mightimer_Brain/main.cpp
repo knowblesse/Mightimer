@@ -57,6 +57,7 @@ volatile int BtnL_inc = 0;
 volatile int BtnR_inc = 0;
 volatile int allInt = 0;
 volatile uint16_t rotationTCA = 0;
+volatile int numRTC_OVR_cnt = 0;
 
 void setTime(SPI_Display *spiDisplay, long long timeInSec)
 {
@@ -101,6 +102,7 @@ ISR(PORTD_PORT_vect)
 
 ISR(RTC_CNT_vect)
 {
+	numRTC_OVR_cnt++;
 	RTC.INTFLAGS |= RTC_OVF_bm;
 }
 
@@ -214,6 +216,8 @@ int main(void)
 	
 	// Default UI Setup
 	Timer timer[3] = {Timer(), Timer(), Timer()};
+
+	long currTabLastSecond = 0;
 	
 	long currTimeInSec = 0;
 	
@@ -237,44 +241,74 @@ int main(void)
 
 	sei();
 	
+	uint16_t t;
     while(1)
     {
 		currentTCA = TCA0.SINGLE.CNT;
-		//Btn_L.readButton(currentTCA);
-		//Btn_R.readButton(currentTCA);
+		Btn_L.readButton(currentTCA);
+		Btn_R.readButton(currentTCA);
 		//Ecd_L.readEncoder();
 		//Ecd_R.readEncoder();
-	
+		
+		t = RTC.CNT;
+		// Check Count
+		if (numRTC_OVR_cnt > 0)
+		{
+			if (timer[currentTab].isEnabled > 1)
+			{
+				timer[currentTab].rtc_ovf_reached = true;
+			}
+			numRTC_OVR_cnt = 0;
+		}
+
+		// Check CNT
+		if (timer[currentTab].isEnabled > 1 && timer[currentTab].rtc_ovf_reached)
+		{
+			if (t >= timer[currentTab].time_criterion)
+			{
+				timer[currentTab].seconds++;
+				timer[currentTab].rtc_ovf_reached = false;
+			}	
+
+		}
+
 		
 		// Check Mode
 		switch (currentMode)
 		{
 			case Mode_Normal:
-				if (timer[currentTab].isEnabled)
+				if (timer[currentTab].isEnabled > 1)// either first moving or resumed
 				{
 					// update current screen
 				
-					if(Btn_R.state) // Check Stop
+					if(Btn_R.state) // Paused. To be stopped, either time limit must be reached, or be reset.
 					{
-						timer[currentTab].isEnabled = false;
+						t = RTC.CNT;
+						timer[currentTab].isEnabled = Status_Paused;
+						timer[currentTab].time_criterion = 0xFF - (t - timer[currentTab].time_criterion);
 					}
 				}
 				else
 				{
 					if(Btn_R.state) // Start Timer
 					{
-						timer[currentTab].isEnabled = true;
-						timer[currentTab].RTC_start_count = RTC.CNT;
+						if (timer[currentTab].isEnabled == Status_Stop)
+						{
+							 timer[currentTab].isEnabled = Status_FirstMoving;
+							 timer[currentTab].time_criterion = RTC.CNT;
+						}
+						else // Paused. Now resume
+						{
+							timer[currentTab].isEnabled = Status_Resumed; 
+							timer[currentTab].time_criterion = RTC.CNT + timer[currentTab].time_criterion;
+						}
 					}
-				
 				}
 			
 				// Check if screen should be updated
-				if(timer[currentTab].isEnabled & (RTC.INTFLAGS & RTC_OVF_bm) & (RTC.CNT > timer[currentTab].RTC_start_count))
+				if(timer[currentTab].seconds != currTabLastSecond)
 				{
-					RTC.INTFLAGS |= RTC_OVF_bm;
-					setTime(&spiDisplay, currTimeInSec);
-					currTimeInSec++;
+					setTime(&spiDisplay, timer[currentTab].seconds);
 				}
 			
 				break;
@@ -299,7 +333,7 @@ int main(void)
 			break;
 		}
 		
-		//setLED(timer[currentTab].isEnabled);
+		setLED(timer[currentTab].isEnabled > 1);
 			
     }
 }
