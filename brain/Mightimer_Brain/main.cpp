@@ -46,7 +46,7 @@ enum Mode{
 };
 
 // Global Variables
-int currentMode = Mode_Normal;
+volatile int currentMode = Mode_Normal;
 int currSecond = -1;
 int currMinute = -1;
 int currHour = -1;
@@ -54,8 +54,11 @@ volatile int BtnL_inc = 0;
 volatile int BtnR_inc = 0;
 volatile bool BtnR_pushed = false;
 volatile int allInt = 0;
+volatile uint16_t currentTCA = 0; // TCA is used for Button's debounce
+volatile uint16_t clickTCA = 0;
 volatile uint16_t rotationTCA = 0;
 volatile int numRTC_OVR_cnt = 0;
+bool debug_val = false;
 
 void setTime(SPI_Display *spiDisplay, long long timeInSec){
 	int hour = (int)((double)timeInSec / 3600.0);
@@ -95,11 +98,25 @@ ISR(PORTD_PORT_vect){
 	PORTD.INTFLAGS = PORTD.INTFLAGS; // clear flag
 }
 
+// Button 2 (right) push event
 ISR(PORTF_PORT_vect){
 	if(PORTF.INTFLAGS & PIN6_bm){
-		BtnR_pushed = true;
+		BtnR_pushed = false;
+		if(PORTF.IN & PIN6_bm){ // button release
+			if (TCA0.SINGLE.CNT - clickTCA > 60){
+				BtnR_pushed = true;
+				 //setLED(debug_val);
+				//debug_val = !debug_val;
+			}
+			clickTCA = TCA0.SINGLE.CNT;
+		}
+		else{  // button push
+			clickTCA = TCA0.SINGLE.CNT;
+		}
 	}
+	
 	PORTF.INTFLAGS = PORTF.INTFLAGS; // clear flag
+	
 }
 	
 ISR(RTC_CNT_vect)
@@ -151,7 +168,7 @@ int main(void)
 	// Setup Ports	
 	/*
 	PF6 : BTN2 PUSH
-	PA2 : LED
+	PA2 : Buzzer (WO2)
 	PA3 : LCD LED
 	PA4 : SPI_COPI
 	PA5 : BTN1 PUSH
@@ -169,9 +186,9 @@ int main(void)
 	*/
 	
 	PORTF.DIRCLR = PIN6_bm; // BTN2_PUSH
-	PORTF.PIN6CTRL |= PORT_PULLUPEN_bm | PORT_ISC_RISING_gc;
+	PORTF.PIN6CTRL |= PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc;
 	
-	PORTA.DIRSET = PIN2_bm | PIN3_bm; // LED, LCD_LED
+	PORTA.DIRSET = PIN2_bm | PIN3_bm; // BUZZER, LCD_LED
 	
 	PORTA.DIRCLR = PIN5_bm; // BTN1_PUSH
 	PORTA.PIN5CTRL |= PORT_PULLUPEN_bm;
@@ -225,12 +242,6 @@ int main(void)
 	
 	int currentTab = 0;
 	
-	/* Button Press Logic
-	// detect fall
-	// get time between rise and fall
-	// If the time between rise and fall is big enough, than register as a valid click
-	*/
-	volatile uint16_t currentTCA;
 	
 	// Clicks
 	Button Btn_L = Button(&PORTA.IN, 5);
@@ -239,6 +250,8 @@ int main(void)
 	sei();
 	
 	uint16_t t;
+	
+	bool led_val = false;
     
 	while(1){
 		currentTCA = TCA0.SINGLE.CNT;
@@ -261,15 +274,16 @@ int main(void)
 			timer[currentTab].rtc_ovf_reached = false;
 			}
 		}
-	
+		//setLED(led_val);
 		// Check Mode
 		switch (currentMode){
 			case Mode_Normal:
 				// In the normal mode, the currently showing timer can either be moving or not.
 				
-				//TODO: Change this into interrupt
 				if(BtnR_pushed){// Right button is pushed. 
 					BtnR_pushed = false;
+					led_val = ~led_val;
+					setLED(led_val);
 					switch (timer[currentTab].isEnabled){
 						case Status_Initial: // The initial state of the timer
 							timer[currentTab].isEnabled = Status_FirstMoving;
@@ -299,27 +313,27 @@ int main(void)
 				}
 				break;
 	
-			case Mode_SetTime:
-				setLED(true);
-				// If rotation interrupt has occurred, and BtnR_inc is not zero,
-				// apply the changed value into the currTimeInSec and reset BtnR_inc
-				if (BtnR_inc != 0){
-					currTimeInSec += BtnR_inc;
-					if(currTimeInSec < 0) currTimeInSec = 0;
-					BtnR_inc = 0;
-					setTime(&spiDisplay, currTimeInSec);
-				}
-				
-				if(BtnR_pushed){
-					BtnR_pushed = false;
-					currentMode = Mode_Normal;
-				}
-	
-				// Check if screen should be updated
-				break;
-			case Mode_SetAdvance:
-				// check buttons
-				break;
+			//case Mode_SetTime:
+				//setLED(true);
+				//// If rotation interrupt has occurred, and BtnR_inc is not zero,
+				//// apply the changed value into the currTimeInSec and reset BtnR_inc
+				//if (BtnR_inc != 0){
+					//currTimeInSec += BtnR_inc;
+					//if(currTimeInSec < 0) currTimeInSec = 0;
+					//BtnR_inc = 0;
+					//setTime(&spiDisplay, currTimeInSec);
+				//}
+				//
+				//if(BtnR_pushed){
+					//BtnR_pushed = false;
+					//currentMode = Mode_Normal;
+				//}
+	//
+				//// Check if screen should be updated
+				//break;
+			//case Mode_SetAdvance:
+				//// check buttons
+				//break;
 			}
 		}
 	
