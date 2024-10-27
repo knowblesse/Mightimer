@@ -146,15 +146,15 @@ void SPI_Display::init_LCD()
 
 void SPI_Display::setHour(int hour)
 {
-  DispPic(large_digit[hour], 2, 5, 0, 27);
+  DispPic(large_digit[hour], 3, 5, 0, 27);
 }
 
 void SPI_Display::setMinute(int minute)
 {
   int first_digit = (int)(minute / 10);
   int last_digit = minute % 10;
-  DispPic(large_digit[first_digit], 2, 5, 37, 27);
-  DispPic(large_digit[last_digit], 2, 5, 64, 27);
+  DispPic(large_digit[first_digit], 3, 5, 37, 27);
+  DispPic(large_digit[last_digit], 3, 5, 64, 27);
 }
 
 void SPI_Display::setSecond(int second)
@@ -163,4 +163,47 @@ void SPI_Display::setSecond(int second)
   int last_digit = second % 10;
   DispPic(small_digit[first_digit], 5, 3, 91, 18);
   DispPic(small_digit[last_digit], 5, 3, 110, 18);
+}
+
+void SPI_Display::setArrow(int timer, int shape)
+{
+	switch (shape)
+	{
+		case 0:
+			DispPic(noarrow, 0, 2, 15, 9);
+			break;
+		case 1:
+			DispPic(uparrow, 0, 2, 15, 9);
+			break;	
+		default:
+		/* Your code here */
+		break;
+	}
+	
+}
+
+void SPI_Display::setPower(int power)
+{
+	// Page 2
+	// column 114 ~ 123 => 10 column
+	// Power 0 => Fill with 0x81
+	// Power 1 => First one is 0xBD and rest of them are 0x81
+	// Power 10 => Fill with 0xBD
+	const int COLUMN = 115;
+	comm_write(0xB0 + 0x02); // send page address
+	comm_write(0x10 + (COLUMN >> 4)); // column address upper 4 bits
+	comm_write(COLUMN & 0b00001111); // column address lower 4 bits
+	
+	for(int col=0; col<10; col++)
+	{
+		if (col < power)
+		{
+			data_write(0xBD);
+		}
+		else
+		{
+			data_write(0x81);
+		}
+	}
+	
 }

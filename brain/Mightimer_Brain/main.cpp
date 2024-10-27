@@ -30,13 +30,13 @@ void setLED(bool state){
 	else PORTA.OUTCLR = PIN3_bm;
 }
 
-double getBattState(){
+void setBattState(SPI_Display *spiDisplay){
 	ADC0.CTRLA |= ADC_ENABLE_bm;
 	ADC0.COMMAND |= ADC_STCONV_bm;
 	while(ADC0.COMMAND & ADC_STCONV_bm);
 	ADC0.CTRLA &= ~ADC_ENABLE_bm;
-	double voltage = ((((double)ADC0.RES / 1024.0) * 3.3) * 2);
-	return (voltage - 3.6) / 0.8 * 100; // 3.6V = 0%, 4.2% = 100%
+	double voltage = (((double)ADC0.RES / 1024.0) * 3.3) * 2;
+	spiDisplay->setPower((int)((voltage - 3.6) / 0.8 * 10)); // 3.6V = 0%, 4.2% = 100%
 }
 
 enum Mode{
@@ -53,6 +53,7 @@ int currHour = -1;
 volatile int BtnL_inc = 0;
 volatile int BtnR_inc = 0;
 volatile bool BtnR_pushed = false;
+volatile bool BtnL_pushed = false;
 volatile int allInt = 0;
 volatile uint16_t currentTCA = 0; // TCA is used for Button's debounce
 volatile uint16_t clickTCA = 0;
@@ -70,6 +71,7 @@ void setTime(SPI_Display *spiDisplay, long long timeInSec){
 	if(currHour != hour) spiDisplay->setHour(hour);
 }
 
+// TODO: NOW always executed at the beginning.
 // ISR for rotation event
 ISR(PORTD_PORT_vect){
 	// First, check debounce
@@ -98,6 +100,25 @@ ISR(PORTD_PORT_vect){
 	PORTD.INTFLAGS = PORTD.INTFLAGS; // clear flag
 }
 
+// Button 1 (left) push event
+ISR(PORTA_PORT_vect){
+	if(PORTA.INTFLAGS & PIN5_bm){
+		BtnL_pushed = false;
+		if(PORTA.IN & PIN5_bm){ // button release
+			if (TCA0.SINGLE.CNT - clickTCA > 60){
+				BtnL_pushed = true;
+			}
+			clickTCA = TCA0.SINGLE.CNT;
+		}
+		else{  // button push
+			clickTCA = TCA0.SINGLE.CNT;
+		}
+	}
+	
+	PORTA.INTFLAGS = PORTA.INTFLAGS; // clear flag
+	
+}
+
 // Button 2 (right) push event
 ISR(PORTF_PORT_vect){
 	if(PORTF.INTFLAGS & PIN6_bm){
@@ -105,8 +126,6 @@ ISR(PORTF_PORT_vect){
 		if(PORTF.IN & PIN6_bm){ // button release
 			if (TCA0.SINGLE.CNT - clickTCA > 60){
 				BtnR_pushed = true;
-				 //setLED(debug_val);
-				//debug_val = !debug_val;
 			}
 			clickTCA = TCA0.SINGLE.CNT;
 		}
@@ -191,24 +210,28 @@ int main(void)
 	PORTA.DIRSET = PIN2_bm | PIN3_bm; // BUZZER, LCD_LED
 	
 	PORTA.DIRCLR = PIN5_bm; // BTN1_PUSH
-	PORTA.PIN5CTRL |= PORT_PULLUPEN_bm;
+	PORTA.PIN5CTRL |= PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc;
 	
+	// Rotation Pin setup
 	PORTC.DIRCLR = PIN3_bm; // BTN2_R2
 	PORTC.PIN3CTRL |= PORT_PULLUPEN_bm;
-	
 	PORTD.DIRCLR = PIN4_bm | PIN5_bm | PIN6_bm; // BTN2_R1, BTN1_R2, BTN1_R1
-	PORTD.PIN4CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // BTN2_R1
+	PORTD.PIN4CTRL = PORT_PULLUPEN_bm;// | PORT_ISC_RISING_gc; // BTN2_R1
 	PORTD.PIN5CTRL = PORT_PULLUPEN_bm;
-	PORTD.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // BTN1_R1
-	
-	// Setup Voltage Reference
-	//VREF.ADC0REF = VREF_REFSEL_VDD_gc; // Internal VDD (3.3V) is the max value
+	PORTD.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_RISING_gc; // BTN1_R1
+
 	
 	// Setup ADC
-	//ADC0.CTRLA = ADC_CONVMODE_SINGLEENDED_gc | ADC_RESSEL_10BIT_gc;
-	//ADC0.CTRLC |= ADC_PRESC_DIV2_gc;
-	//ADC0.CTRLD |= ADC_INITDLY_DLY32_gc;
-	//ADC0.MUXPOS = ADC_MUXPOS_AIN7_gc;
+	// ADC uses Port D7, which is AIN7 of ADC0
+	// Initialization.
+	// 1. Configure Voltage Reference
+	VREF.ADC0REF = VREF_REFSEL_VDD_gc; // Internal VDD (3.3V) is the max value
+	// 2 & 3. Set single-ended mode and set 10-bit resolution
+	ADC0.CTRLA = ADC_CONVMODE_SINGLEENDED_gc | ADC_RESSEL_10BIT_gc;
+	// 7. Set ADC clock
+	ADC0.CTRLC |= ADC_PRESC_DIV2_gc;
+	// 8. Select ADC input (AIN7)
+	ADC0.MUXPOS = ADC_MUXPOS_AIN7_gc;
 	
 	// Setup RTC for second tracking
 	while (RTC.STATUS > 0);
@@ -254,11 +277,13 @@ int main(void)
 	bool led_val = false;
     
 	while(1){
+		// Update Get Current loop's status
 		currentTCA = TCA0.SINGLE.CNT;
 		Btn_L.readButton(currentTCA);
-		
+		currTabLastSecond = timer[currentTab].seconds;
 	
 		t = RTC.CNT;
+		
 		// Check Count
 		if (numRTC_OVR_cnt > 0){
 			if (timer[currentTab].isEnabled > 1){
@@ -274,7 +299,8 @@ int main(void)
 			timer[currentTab].rtc_ovf_reached = false;
 			}
 		}
-		//setLED(led_val);
+
+
 		// Check Mode
 		switch (currentMode){
 			case Mode_Normal:
@@ -283,17 +309,19 @@ int main(void)
 				if(BtnR_pushed){// Right button is pushed. 
 					BtnR_pushed = false;
 					led_val = ~led_val;
-					setLED(led_val);
+					//setLED(led_val);
 					switch (timer[currentTab].isEnabled){
 						case Status_Initial: // The initial state of the timer
 							timer[currentTab].isEnabled = Status_FirstMoving;
 							timer[currentTab].time_criterion = RTC.CNT;
-							setLED(true);
+							spiDisplay.setArrow(0, 1);
+							//setLED(true);
 							break;
 						case Status_Paused: // If the timer was paused, it can be resumed
 							timer[currentTab].isEnabled = Status_Resumed;
 							timer[currentTab].time_criterion = RTC.CNT + timer[currentTab].time_criterion;
-							setLED(true);
+							spiDisplay.setArrow(0, 1);
+							//setLED(true);
 							break;
 						case Status_FirstMoving: // If the timer was first moving, 
 						case Status_Resumed: // or if the timer was resumed,
@@ -302,16 +330,27 @@ int main(void)
 							t = RTC.CNT;
 							timer[currentTab].isEnabled = Status_Paused;
 							timer[currentTab].time_criterion = 0xFF - (t - timer[currentTab].time_criterion);
-							setLED(false);
+							spiDisplay.setArrow(0, 0);
+							//setLED(false);
 							break;
 					}
 				}
-	
-				// Check if screen should be updated
-				if(timer[currentTab].seconds != currTabLastSecond){
-					setTime(&spiDisplay, timer[currentTab].seconds);
+				
+				if(BtnL_pushed){
+					BtnL_pushed = false;
+					switch (timer[currentTab].isEnabled){
+						case Status_Initial:
+						case Status_Paused:
+							timer[currentTab].seconds = 0;
+							break;
+						default:
+							break;
+					}
 				}
+				
 				break;
+	
+				
 	
 			//case Mode_SetTime:
 				//setLED(true);
@@ -334,9 +373,15 @@ int main(void)
 			//case Mode_SetAdvance:
 				//// check buttons
 				//break;
-			}
 		}
-	
+			
+		// Check if screen should be updated
+		if(timer[currentTab].seconds != currTabLastSecond){
+			setTime(&spiDisplay, timer[currentTab].seconds);
+		}
+		
+		setBattState(&spiDisplay);
+	}
 }
 
 

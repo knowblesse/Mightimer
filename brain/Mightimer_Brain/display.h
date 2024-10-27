@@ -26,6 +26,8 @@ class SPI_Display
 		void setHour(int hour);
 		void setMinute(int minute);
 		void setSecond(int second);
+		void setArrow(int timer, int shape);
+		void setPower(int power);
 };
 
 #endif /* DISPLAY_H_ */

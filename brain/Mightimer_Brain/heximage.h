@@ -13,5 +13,8 @@
 extern const unsigned char large_digit[10][27*5];
 extern const unsigned char small_digit[10][18*3];
 extern const unsigned char background[128*8];
+extern const unsigned char noarrow[9*2];
+extern const unsigned char uparrow[9*2];
+
 
 #endif

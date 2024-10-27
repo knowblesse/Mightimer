@@ -1,4 +1,4 @@
-img = not(im2bw(imread('C:\VCF\Mightimer\assets\image\bg.bmp')));
+img = not(im2bw(imread('C:\VCF\Mightimer\Timer.bmp')));
 
 outputHex = uint8(zeros(128*8,1));
 for row = 1 : 8
