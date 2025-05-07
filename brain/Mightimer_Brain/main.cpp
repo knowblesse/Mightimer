@@ -3,6 +3,15 @@
  *
  * Created: 2023-02-22 오후 5:41:37
  * Author : Knowblesse
+ 
+ TODO: Working on right rotation for Time edit mode.
+ 1. rotation is unstable.
+ 2. Value from rotation does not match with the timer's value.
+ 3. When reset, and restart, the first second start too fast. 
+ 4. For change digit function for Left roation during set time mode, add underline.
+ 5. Pause and resume also creates some jitter.
+ 
+ 
  */ 
 
 #define F_CPU 4000000UL
@@ -50,6 +59,9 @@ volatile int currentMode = Mode_Normal;
 int currSecond = -1;
 int currMinute = -1;
 int currHour = -1;
+
+int currentTab = 0;
+	
 volatile int BtnL_inc = 0;
 volatile int BtnR_inc = 0;
 volatile bool BtnR_pushed = false;
@@ -71,29 +83,28 @@ void setTime(SPI_Display *spiDisplay, long long timeInSec){
 	if(currHour != hour) spiDisplay->setHour(hour);
 }
 
-// TODO: NOW always executed at the beginning.
+int changeTab(int _BtnL_inc, int _currentTab){
+	if(_BtnL_inc > 0) _currentTab++;
+	else _currentTab--;
+	if(_currentTab < 0) _currentTab = 2;
+	if(_currentTab > 2) _currentTab = 0;
+	return _currentTab;
+}
+
 // ISR for rotation event
 ISR(PORTD_PORT_vect){
 	// First, check debounce
 	if (TCA0.SINGLE.CNT - rotationTCA > 40){
-		//Then, check `currentMode`
-		if (currentMode == Mode_Normal){
-			// If a rotation occurred during normal mode, go to set time mode
-			currentMode = Mode_SetTime;
+		// Check which encoder evoked the interrupt
+		// Left one
+		if (PORTD.INTFLAGS & PIN6_bm){ //D6
+			if (!(PORTD.IN & PIN5_bm)) BtnL_inc++; // R1 is lagging
+			else BtnL_inc--;			
 		}
-		else if (currentMode == Mode_SetTime){
-			// If a rotation occurred during set time mode, 
-			// Check which encoder evoked the interrupt
-			// Left one
-			if (PORTD.INTFLAGS & PIN6_bm){
-				if (!(PORTD.IN & PIN5_bm)) BtnL_inc++; // R1 is lagging
-				else BtnL_inc--;			
-			}
-			// Right one
-			else{
-				if (!(PORTC.IN & PIN3_bm)) BtnR_inc++; // R1 is lagging
-				else BtnR_inc--;
-			}
+		// Right one
+		else{ //D4
+			if (!(PORTC.IN & PIN3_bm)) BtnR_inc++; // R1 is lagging
+			else BtnR_inc--;
 		}
 		rotationTCA = TCA0.SINGLE.CNT; // set the new time for the debounce
 	}
@@ -146,6 +157,9 @@ ISR(RTC_CNT_vect)
 
 int main(void)
 {
+	//*********************************************************************//
+	// Start Initialization
+	//*********************************************************************//
 	uint8_t temp;
 
 	// Select Main Clock as internal high-freq oscillator
@@ -158,7 +172,6 @@ int main(void)
 	temp = CLKCTRL_CLKSEL_OSCHF_gc; // Internal high-freq oscillator
 	CPU_CCP = CCP_IOREG_gc;
 	CLKCTRL.MCLKCTRLA = temp;
-	
 		
 	// Check if main clock is synced
 	while (CLKCTRL.MCLKSTATUS & CLKCTRL_SOSC_bm);
@@ -167,7 +180,6 @@ int main(void)
 	temp = CLKCTRL.XOSC32KCTRLA;
 	temp &= ~CLKCTRL_ENABLE_bm;
 	ccp_write_io((uint8_t *) &CLKCTRL.XOSC32KCTRLA, temp);
-
 	
 	while(CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm){}
 	
@@ -212,15 +224,23 @@ int main(void)
 	PORTA.DIRCLR = PIN5_bm; // BTN1_PUSH
 	PORTA.PIN5CTRL |= PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc;
 	
-	// Rotation Pin setup
+	/************************************************************/
+	/* Rotation Pin setup                                       */
+	/************************************************************/
+	/* Enable interrupt for R1 pins only. Since each rotation   */
+	/* will generate two pulses, one interrupt is enough.       */
+	/************************************************************/
 	PORTC.DIRCLR = PIN3_bm; // BTN2_R2
-	PORTC.PIN3CTRL |= PORT_PULLUPEN_bm;
+	PORTC.PIN3CTRL = PORT_PULLUPEN_bm; // BTN2_R2
+	
 	PORTD.DIRCLR = PIN4_bm | PIN5_bm | PIN6_bm; // BTN2_R1, BTN1_R2, BTN1_R1
-	PORTD.PIN4CTRL = PORT_PULLUPEN_bm;// | PORT_ISC_RISING_gc; // BTN2_R1
-	PORTD.PIN5CTRL = PORT_PULLUPEN_bm;
+	PORTD.PIN4CTRL = PORT_PULLUPEN_bm | PORT_ISC_RISING_gc; // BTN2_R1
+	PORTD.PIN5CTRL = PORT_PULLUPEN_bm; // BTN1_R2
 	PORTD.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_RISING_gc; // BTN1_R1
 
-	
+	/************************************************************/
+	/* Setup ADC                                                */
+	/************************************************************/
 	// Setup ADC
 	// ADC uses Port D7, which is AIN7 of ADC0
 	// Initialization.
@@ -233,7 +253,9 @@ int main(void)
 	// 8. Select ADC input (AIN7)
 	ADC0.MUXPOS = ADC_MUXPOS_AIN7_gc;
 	
-	// Setup RTC for second tracking
+	/************************************************************/
+	/* Setup RTC for second tracking                            */
+	/************************************************************/
 	while (RTC.STATUS > 0);
 	RTC.CLKSEL |= RTC_CLKSEL_XTAL32K_gc;
 	RTC.DBGCTRL |= RTC_DBGRUN_bm;
@@ -262,10 +284,7 @@ int main(void)
 	long currTabLastSecond = 0;
 	
 	long currTimeInSec = 0;
-	
-	int currentTab = 0;
-	
-	
+
 	// Clicks
 	Button Btn_L = Button(&PORTA.IN, 5);
 	Button Btn_R = Button(&PORTF.IN, 6);
@@ -305,11 +324,9 @@ int main(void)
 		switch (currentMode){
 			case Mode_Normal:
 				// In the normal mode, the currently showing timer can either be moving or not.
-				
-				if(BtnR_pushed){// Right button is pushed. 
+				if(BtnR_pushed){// Right button is pushed. In normal Mode, start/stop timer 
 					BtnR_pushed = false;
-					led_val = ~led_val;
-					//setLED(led_val);
+					
 					switch (timer[currentTab].isEnabled){
 						case Status_Initial: // The initial state of the timer
 							timer[currentTab].isEnabled = Status_FirstMoving;
@@ -336,40 +353,51 @@ int main(void)
 					}
 				}
 				
-				if(BtnL_pushed){
+				if(BtnL_pushed){ // Left button is pushed. Reset the timer if it is not moving
 					BtnL_pushed = false;
 					switch (timer[currentTab].isEnabled){
 						case Status_Initial:
 						case Status_Paused:
 							timer[currentTab].seconds = 0;
+							timer[currentTab].isEnabled = Status_Initial;
 							break;
 						default:
 							break;
 					}
 				}
 				
+				if(BtnL_inc != 0){ // Left button is rotated. => Change Tab
+					currentTab = changeTab(BtnL_inc, currentTab);
+					BtnL_inc = 0;
+				}
+				
+				if(BtnR_inc != 0){ // Right button is rotated. => go to Set Time mode if the timer is not moving
+					if (timer[currentTab].isEnabled < 2 ){ // Not Moving
+						currentMode = Mode_SetTime;
+					}
+					BtnR_inc = 0;
+				}
 				break;
 	
+			case Mode_SetTime:
+				setLED(true);
+				// If rotation interrupt has occurred, and BtnR_inc is not zero,
+				// apply the changed value into the currTimeInSec and reset BtnR_inc
+				if (BtnR_inc != 0){
+					timer[currentTab].seconds += BtnR_inc;
+					if(timer[currentTab].seconds < 0) timer[currentTab].seconds = 0;
+					BtnR_inc = 0;
+					setTime(&spiDisplay, timer[currentTab].seconds);
+				}	
 				
+				if(BtnR_pushed){
+					BtnR_pushed = false;
+					currentMode = Mode_Normal;
+					BtnR_inc = 0;
+					setLED(false);
+				}
 	
-			//case Mode_SetTime:
-				//setLED(true);
-				//// If rotation interrupt has occurred, and BtnR_inc is not zero,
-				//// apply the changed value into the currTimeInSec and reset BtnR_inc
-				//if (BtnR_inc != 0){
-					//currTimeInSec += BtnR_inc;
-					//if(currTimeInSec < 0) currTimeInSec = 0;
-					//BtnR_inc = 0;
-					//setTime(&spiDisplay, currTimeInSec);
-				//}
-				//
-				//if(BtnR_pushed){
-					//BtnR_pushed = false;
-					//currentMode = Mode_Normal;
-				//}
-	//
-				//// Check if screen should be updated
-				//break;
+				break;
 			//case Mode_SetAdvance:
 				//// check buttons
 				//break;

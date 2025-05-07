@@ -9,13 +9,13 @@
 			<CSub></CSub>
 			<CVariant></CVariant>
 			<CVendor>Atmel</CVendor>
-			<CVersion>2.1.0</CVersion>
+			<CVersion>2.7.0</CVersion>
 			<DefaultRepoPath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs</DefaultRepoPath>
 			<DependentComponents xmlns:d4p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays" />
 			<Description></Description>
 			<Files xmlns:d4p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
 				<d4p1:anyType i:type="FileInfo">
-					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.1.146\include\</AbsolutePath>
+					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.7.321\include\</AbsolutePath>
 					<Attribute></Attribute>
 					<Category>include</Category>
 					<Condition>C</Condition>
@@ -26,18 +26,18 @@
 					<SourcePath></SourcePath>
 				</d4p1:anyType>
 				<d4p1:anyType i:type="FileInfo">
-					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.1.146\include\avr\ioavr32dd20.h</AbsolutePath>
+					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.7.321\include\avr\ioavr32dd20.h</AbsolutePath>
 					<Attribute></Attribute>
 					<Category>header</Category>
 					<Condition>C</Condition>
-					<FileContentHash>d7anLz2PHCitM6WbYTlffg==</FileContentHash>
+					<FileContentHash>NdDuyfvybx9Z2qVhGtOoeQ==</FileContentHash>
 					<FileVersion></FileVersion>
 					<Name>include/avr/ioavr32dd20.h</Name>
 					<SelectString></SelectString>
 					<SourcePath></SourcePath>
 				</d4p1:anyType>
 				<d4p1:anyType i:type="FileInfo">
-					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.1.146\templates\main.c</AbsolutePath>
+					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.7.321\templates\main.c</AbsolutePath>
 					<Attribute>template</Attribute>
 					<Category>source</Category>
 					<Condition>C Exe</Condition>
@@ -48,18 +48,18 @@
 					<SourcePath></SourcePath>
 				</d4p1:anyType>
 				<d4p1:anyType i:type="FileInfo">
-					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.1.146\templates\main.cpp</AbsolutePath>
+					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.7.321\templates\main.cpp</AbsolutePath>
 					<Attribute>template</Attribute>
 					<Category>source</Category>
 					<Condition>C Exe</Condition>
-					<FileContentHash>pMF6+K4bp02IihtMrTtJSA==</FileContentHash>
+					<FileContentHash>mkKaE95TOoATsuBGv6jmxg==</FileContentHash>
 					<FileVersion></FileVersion>
 					<Name>templates/main.cpp</Name>
 					<SelectString>Main file (.cpp)</SelectString>
 					<SourcePath></SourcePath>
 				</d4p1:anyType>
 				<d4p1:anyType i:type="FileInfo">
-					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.1.146\gcc\dev\avr32dd20</AbsolutePath>
+					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\AVR-Dx_DFP\2.7.321\gcc\dev\avr32dd20</AbsolutePath>
 					<Attribute></Attribute>
 					<Category>libraryPrefix</Category>
 					<Condition>GCC</Condition>
@@ -71,8 +71,8 @@
 				</d4p1:anyType>
 			</Files>
 			<PackName>AVR-Dx_DFP</PackName>
-			<PackPath>C:/Program Files (x86)/Atmel/Studio/7.0/Packs/Atmel/AVR-Dx_DFP/2.1.146/Atmel.AVR-Dx_DFP.pdsc</PackPath>
-			<PackVersion>2.1.146</PackVersion>
+			<PackPath>C:/Program Files (x86)/Atmel/Studio/7.0/Packs/Atmel/AVR-Dx_DFP/2.7.321/Atmel.AVR-Dx_DFP.pdsc</PackPath>
+			<PackVersion>2.7.321</PackVersion>
 			<PresentInProject>true</PresentInProject>
 			<ReferenceConditionId>AVR32DD20</ReferenceConditionId>
 			<RteComponents xmlns:d4p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
